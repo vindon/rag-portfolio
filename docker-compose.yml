@@ -1,0 +1,128 @@
+version: "3.9"
+
+# =============================================================================
+# Optional: Docker services for production-grade vector databases
+# All projects run without Docker (using embedded/in-memory modes by default)
+# Use Docker when you want persistent, production-ready vector stores
+# =============================================================================
+# Usage:
+#   docker compose up qdrant        # Project 03
+#   docker compose up milvus        # Project 04
+#   docker compose up weaviate      # Project 05
+#   docker compose up               # All services
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Qdrant — used in Project 03: Marketing Content Hub
+  # Default mode: :memory: (no Docker needed)
+  # Production mode: set QDRANT_URL=http://localhost:6333 in .env
+  # ---------------------------------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: rag-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__GRPC_PORT: 6334
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Milvus Standalone — used in Project 04: TechDocs RAG Pipeline
+  # Default mode: Milvus Lite embedded ./milvus.db (no Docker needed)
+  # Production mode: set MILVUS_URI=http://localhost:19530 in .env
+  # ---------------------------------------------------------------------------
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.5
+    container_name: rag-etcd
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+      ETCD_SNAPSHOT_COUNT: "50000"
+    volumes:
+      - etcd_data:/etcd
+    command: >
+      etcd
+      --advertise-client-urls=http://127.0.0.1:2379
+      --listen-client-urls=http://0.0.0.0:2379
+      --data-dir=/etcd
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    container_name: rag-minio
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    volumes:
+      - minio_data:/minio_data
+    command: minio server /minio_data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    restart: unless-stopped
+
+  milvus:
+    image: milvusdb/milvus:latest
+    container_name: rag-milvus
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+    volumes:
+      - milvus_data:/var/lib/milvus
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    depends_on:
+      - etcd
+      - minio
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # Weaviate — used in Project 05: IT Helpdesk Agent
+  # Default mode: Weaviate Embedded (no Docker needed)
+  # Production mode: set WEAVIATE_URL=http://localhost:8080 in .env
+  # ---------------------------------------------------------------------------
+  weaviate:
+    image: semitechnologies/weaviate:latest
+    container_name: rag-weaviate
+    ports:
+      - "8080:8080"
+      - "50051:50051"
+    volumes:
+      - weaviate_data:/var/lib/weaviate
+    environment:
+      QUERY_DEFAULTS_LIMIT: 25
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
+      PERSISTENCE_DATA_PATH: /var/lib/weaviate
+      DEFAULT_VECTORIZER_MODULE: none
+      CLUSTER_HOSTNAME: node1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/.well-known/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  qdrant_data:
+  etcd_data:
+  minio_data:
+  milvus_data:
+  weaviate_data:

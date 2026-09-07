@@ -1,0 +1,33 @@
+# Project 04 — Technical Docs RAG Pipeline
+# Adds Milvus Lite, BM25, hybrid search, cross-encoder reranking, and evaluation
+
+llama-index-core>=0.10.0
+llama-index-llms-groq>=0.1.0
+llama-index-llms-gemini>=0.1.0
+llama-index-llms-ollama>=0.1.0
+llama-index-embeddings-ollama>=0.1.0
+llama-index-embeddings-gemini>=0.1.0
+llama-index-embeddings-huggingface>=0.1.0
+llama-index-readers-file>=0.1.0
+
+# Vector store
+llama-index-vector-stores-milvus>=0.2.0
+pymilvus>=2.4.0                        # Milvus Lite embedded (no Docker needed on ARM64)
+
+# Hybrid search
+llama-index-retrievers-bm25>=0.1.0     # BM25 sparse retrieval
+rank-bm25>=0.2.2                       # BM25 backend
+
+# Reranking (cross-encoder, downloads ~85MB model on first use)
+llama-index-postprocessor-sbert-rerank>=0.1.0
+sentence-transformers>=2.6.0
+
+# UI
+streamlit>=1.35.0
+
+# Document parsing
+pypdf>=3.0.0
+
+# Utilities
+python-dotenv>=1.0.0
+requests>=2.31.0

@@ -1,0 +1,36 @@
+# Project 05 — IT Helpdesk Multi-Agent System
+# LangGraph + Weaviate Embedded + Groq + DuckDuckGo + SQLite + Google Calendar
+
+# LangGraph multi-agent framework
+langgraph>=0.2.0
+langchain>=0.3.0
+langchain-core>=0.3.0
+
+# LLM providers (LangChain interface)
+langchain-groq>=0.1.0              # Primary: Groq
+langchain-google-genai>=1.0.0      # Fallback: Gemini
+langchain-ollama>=0.1.0            # Fallback: Ollama local
+langchain-community>=0.3.0
+
+# Embeddings for Weaviate manual ingestion
+requests>=2.31.0                   # Ollama REST API for embeddings
+
+# Vector store
+weaviate-client>=4.5.0             # Weaviate v4 (embedded mode — no Docker)
+
+# Web search (free, no API key)
+duckduckgo-search>=6.0.0
+
+# Google Calendar (optional — app runs in mock mode without these)
+google-api-python-client>=2.100.0
+google-auth-httplib2>=0.2.0
+google-auth-oauthlib>=1.1.0
+
+# UI
+streamlit>=1.35.0
+
+# Structured output parsing
+pydantic>=2.0.0
+
+# Utilities
+python-dotenv>=1.0.0

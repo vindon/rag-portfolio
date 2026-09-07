@@ -1,0 +1,25 @@
+# Project 03 — Marketing Content Hub
+# Adds Qdrant vector store and template routing
+
+llama-index-core>=0.10.0
+llama-index-llms-groq>=0.1.0
+llama-index-llms-gemini>=0.1.0
+llama-index-llms-ollama>=0.1.0
+llama-index-embeddings-ollama>=0.1.0
+llama-index-embeddings-gemini>=0.1.0
+llama-index-embeddings-huggingface>=0.1.0
+llama-index-readers-file>=0.1.0
+llama-index-vector-stores-qdrant>=0.2.0
+
+# Qdrant client
+qdrant-client>=1.9.0
+
+# UI
+streamlit>=1.35.0
+
+# Document parsing
+pypdf>=3.0.0
+
+# Utilities
+python-dotenv>=1.0.0
+requests>=2.31.0

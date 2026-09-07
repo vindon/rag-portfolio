@@ -1,3 +1,5 @@
+import os  # deliberately unused, to trigger ruff F401 — proves the gate blocks bad code
+
 from fastapi import FastAPI
 
 from gateway.domains.registry import DOMAIN_NAMES, make_domain_router

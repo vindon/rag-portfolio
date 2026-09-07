@@ -52,7 +52,7 @@ v1:
 rag-portfolio/
 ├── apps/
 │   ├── web/                  # Next.js frontend (Vercel)
-│   └── api/                  # FastAPI gateway (Fly.io/Render)
+│   └── api/                  # FastAPI gateway (Render)
 │       ├── domains/
 │       │   ├── hr_policy/
 │       │   ├── contract_review/
@@ -301,11 +301,11 @@ Applied uniformly across `apps/` and `packages/`:
 | Layer | Choice | Why |
 |---|---|---|
 | Frontend | Next.js on Vercel (free tier) | Native fit, zero-config previews |
-| API | FastAPI, containerized, on Fly.io (free tier) | Better scale-up story than Render if this ever needs to grow |
+| API | FastAPI, containerized, on Render (free tier, Docker runtime via `render.yaml` Blueprint) | User already holds Render + Vercel accounts; Render deploys the same Dockerfile directly with no separate CLI login step, and is cheaper than Fly.io for this project's needs |
 | Budget/audit/eval DB | Postgres via Neon or Supabase (free tier) | Real shared state, survives redeploys |
 | Vector stores | Unchanged per-domain: in-memory (01/02), Qdrant (03), Milvus Lite (04), Weaviate embedded (05) | Preserves the deliberate variety already in the portfolio — itself a teaching point |
 | CI/CD | GitHub Actions (free on public repos) | Standard, well-understood |
-| Secrets | Provider-native secret managers (Vercel/Fly env vars) | Never committed to git |
+| Secrets | Provider-native secret managers (Vercel/Render env vars) | Never committed to git |
 | Domain | Custom domain (~$10-12/yr) | Only realistic recurring cost; materially improves professional presentation |
 
 ## 12. GTM Strategy

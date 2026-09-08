@@ -153,6 +153,22 @@ into a formal service:
     estimated cost, latency, success/failure.
 - Price table lives in `packages/model_gateway/pricing.yaml`, reviewed/updated
   manually — an explicit non-goal is live price-API integration for v1.
+- **Prompt caching (cost-control, not just latency):** the gateway must use each
+  provider's native prompt-caching mechanism where one exists — Anthropic prompt
+  caching (`cache_control` breakpoints), Gemini context caching, and OpenAI's
+  automatic prompt caching — for the parts of a request that repeat across calls:
+  system prompts, domain instructions, and (for `techdocs`/`it_helpdesk`) the
+  retrieved-context block when the same chunks recur across a session. Providers
+  without a caching mechanism (Groq, Mistral, Cohere, HuggingFace Inference,
+  Ollama-local) are called normally — caching is applied where supported, not
+  simulated where it isn't. Cache hit/miss and cached-vs-fresh token counts are
+  part of the structured log emission above, and the cost estimator (§4) and
+  Spend Guard's pre-call check (§5) must price cached tokens at each provider's
+  cached rate, not the fresh-token rate — otherwise the budget check
+  over-estimates cost and triggers false downgrades/stops. Domain modules that
+  compose prompts (all 5 domains, via `agent_runtime` or directly) must structure
+  their prompts with the stable (system/instructions) portion first and the
+  variable (per-query) portion last, since provider caching is prefix-based.
 
 ## 5. Spend Guard & Circuit Breaker
 

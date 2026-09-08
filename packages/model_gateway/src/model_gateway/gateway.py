@@ -78,6 +78,13 @@ class ChatOutcome:
     attempted_providers: list[str]
 
 
+@dataclass
+class EmbedOutcome:
+    result: EmbeddingResult
+    estimated_cost_usd: float
+    attempted_providers: list[str]
+
+
 class ModelGateway:
     def __init__(
         self,
@@ -171,13 +178,15 @@ class ModelGateway:
             "model_gateway", f"all providers in fallback chain failed: {attempted}"
         ) from last_error
 
-    async def embed(self, texts: list[str]) -> EmbeddingResult:
+    async def embed(self, texts: list[str]) -> EmbedOutcome:
         chain = self._settings.embed_fallback_chain()
         if not chain:
             raise ProviderError("model_gateway", "no embedding providers configured")
 
+        attempted: list[str] = []
         last_error: Exception | None = None
         for provider_name in chain:
+            attempted.append(provider_name)
             config = self._settings.embed_providers[provider_name]
             adapter = _build_embed_adapter(
                 config, timeout=self._settings.timeout_seconds, client=self._client
@@ -194,7 +203,6 @@ class ModelGateway:
                     max_retries=self._settings.max_retries,
                     base_delay_seconds=self._settings.retry_base_delay_seconds,
                 )
-                return embed_result
             except Exception as exc:
                 logger.warning(
                     "model_gateway.embed.failed provider=%s error=%s", provider_name, exc
@@ -202,6 +210,26 @@ class ModelGateway:
                 last_error = exc
                 continue
 
+            cost = estimate_cost(
+                provider=provider_name,
+                model=config.model,
+                input_tokens=embed_result.usage.input_tokens,
+                output_tokens=embed_result.usage.output_tokens,
+                cached_input_tokens=embed_result.usage.cached_input_tokens,
+            )
+            logger.info(
+                "model_gateway.embed.success provider=%s model=%s input_tokens=%d "
+                "estimated_cost_usd=%.6f latency_ms=%.1f",
+                provider_name,
+                config.model,
+                embed_result.usage.input_tokens,
+                cost,
+                embed_result.latency_ms,
+            )
+            return EmbedOutcome(
+                result=embed_result, estimated_cost_usd=cost, attempted_providers=attempted
+            )
+
         raise ProviderError(
-            "model_gateway", f"all embedding providers failed: {chain}"
+            "model_gateway", f"all embedding providers failed: {attempted}"
         ) from last_error

@@ -304,10 +304,10 @@ async def test_embed_returns_result_from_huggingface_provider() -> None:
     )
     gateway = ModelGateway(settings, client=client)
 
-    result = await gateway.embed(["a", "b"])
+    outcome = await gateway.embed(["a", "b"])
 
-    assert result.vectors == [[0.1, 0.2], [0.3, 0.4]]
-    assert result.provider == "huggingface"
+    assert outcome.result.vectors == [[0.1, 0.2], [0.3, 0.4]]
+    assert outcome.result.provider == "huggingface"
 
 
 @pytest.mark.anyio
@@ -340,8 +340,45 @@ async def test_embed_falls_back_to_secondary_on_primary_failure() -> None:
     )
     gateway = ModelGateway(settings, client=client)
 
-    result = await gateway.embed(["hi"])
+    outcome = await gateway.embed(["hi"])
 
-    assert result.vectors == [[0.5, 0.6]]
+    assert outcome.result.vectors == [[0.5, 0.6]]
     assert call_count["primary"] == 1
     assert call_count["secondary"] == 1
+
+
+@pytest.mark.anyio
+async def test_embed_returns_cost_estimate_from_real_pricing_row() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "data": [{"index": 0, "embedding": [0.1, 0.2]}],
+                "usage": {"prompt_tokens": 1_000_000},
+            },
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    providers = {
+        "openai": ProviderConfig(
+            "openai", "https://api.openai.com/v1", "k", "text-embedding-3-small"
+        ),
+    }
+    settings = GatewaySettings(
+        llm_primary="",
+        llm_secondary="",
+        llm_local="",
+        embed_primary="openai",
+        embed_secondary="",
+        timeout_seconds=5.0,
+        max_retries=0,
+        retry_base_delay_seconds=0.001,
+        llm_providers={},
+        embed_providers=providers,
+    )
+    gateway = ModelGateway(settings, client=client)
+
+    outcome = await gateway.embed(["hi"])
+
+    assert outcome.attempted_providers == ["openai"]
+    assert outcome.estimated_cost_usd == pytest.approx(0.02)

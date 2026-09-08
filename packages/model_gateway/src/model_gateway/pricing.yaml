@@ -1,0 +1,61 @@
+# Illustrative per-1M-token USD pricing. Manually reviewed/updated — spec §4
+# treats this as a non-goal to auto-sync from a live pricing API.
+# An (provider, model) pair missing here estimates as $0 rather than
+# raising, so a stale/missing price entry degrades to "untracked cost"
+# instead of blocking a call.
+groq:
+  llama-3.3-70b-versatile:
+    input_per_million: 0.59
+    output_per_million: 0.79
+    cached_input_per_million: 0.59
+openai:
+  gpt-4o-mini:
+    input_per_million: 0.15
+    output_per_million: 0.60
+    cached_input_per_million: 0.075
+  text-embedding-3-small:
+    input_per_million: 0.02
+    output_per_million: 0.0
+    cached_input_per_million: 0.02
+anthropic:
+  claude-3-5-haiku-latest:
+    input_per_million: 0.80
+    output_per_million: 4.00
+    cached_input_per_million: 0.08
+gemini:
+  gemini-2.0-flash:
+    input_per_million: 0.10
+    output_per_million: 0.40
+    cached_input_per_million: 0.025
+  text-embedding-004:
+    input_per_million: 0.0
+    output_per_million: 0.0
+    cached_input_per_million: 0.0
+mistral:
+  mistral-small-latest:
+    input_per_million: 0.20
+    output_per_million: 0.60
+    cached_input_per_million: 0.20
+cohere:
+  command-r:
+    input_per_million: 0.15
+    output_per_million: 0.60
+    cached_input_per_million: 0.15
+huggingface:
+  meta-llama/Llama-3.1-8B-Instruct:
+    input_per_million: 0.0
+    output_per_million: 0.0
+    cached_input_per_million: 0.0
+  BAAI/bge-small-en-v1.5:
+    input_per_million: 0.0
+    output_per_million: 0.0
+    cached_input_per_million: 0.0
+ollama:
+  llama3.2:
+    input_per_million: 0.0
+    output_per_million: 0.0
+    cached_input_per_million: 0.0
+  nomic-embed-text:
+    input_per_million: 0.0
+    output_per_million: 0.0
+    cached_input_per_million: 0.0

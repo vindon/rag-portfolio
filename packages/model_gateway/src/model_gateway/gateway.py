@@ -23,9 +23,19 @@ def _build_llm_adapter(
     config: ProviderConfig, *, timeout: float, client: httpx.AsyncClient | None
 ) -> ChatProvider:
     if config.name == "anthropic":
-        return AnthropicProvider(api_key=config.api_key, timeout_seconds=timeout, client=client)
+        return AnthropicProvider(
+            api_key=config.api_key,
+            base_url=config.base_url,
+            timeout_seconds=timeout,
+            client=client,
+        )
     if config.name == "gemini":
-        return GeminiProvider(api_key=config.api_key, timeout_seconds=timeout, client=client)
+        return GeminiProvider(
+            api_key=config.api_key,
+            base_url=config.base_url,
+            timeout_seconds=timeout,
+            client=client,
+        )
     return OpenAICompatibleProvider(
         provider_name=config.name,
         base_url=config.base_url,
@@ -39,10 +49,18 @@ def _build_embed_adapter(
     config: ProviderConfig, *, timeout: float, client: httpx.AsyncClient | None
 ) -> EmbeddingProvider:
     if config.name == "gemini":
-        return GeminiProvider(api_key=config.api_key, timeout_seconds=timeout, client=client)
+        return GeminiProvider(
+            api_key=config.api_key,
+            base_url=config.base_url,
+            timeout_seconds=timeout,
+            client=client,
+        )
     if config.name == "huggingface":
         return HuggingFaceEmbeddingProvider(
-            api_key=config.api_key, timeout_seconds=timeout, client=client
+            api_key=config.api_key,
+            base_url=config.base_url,
+            timeout_seconds=timeout,
+            client=client,
         )
     return OpenAICompatibleProvider(
         provider_name=config.name,
@@ -68,7 +86,18 @@ class ModelGateway:
         client: httpx.AsyncClient | None = None,
     ) -> None:
         self._settings = settings or load_settings()
-        self._client = client
+        self._owns_client = client is None
+        self._client: httpx.AsyncClient = client if client is not None else httpx.AsyncClient()
+
+    async def aclose(self) -> None:
+        if self._owns_client:
+            await self._client.aclose()
+
+    async def __aenter__(self) -> ModelGateway:
+        return self
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        await self.aclose()
 
     async def complete(
         self,

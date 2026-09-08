@@ -276,6 +276,53 @@ async def test_complete_routes_gemini_provider_to_generate_content_endpoint() ->
 
 
 @pytest.mark.anyio
+async def test_complete_with_force_provider_bypasses_configured_chain() -> None:
+    calls = {"configured_primary": 0, "forced": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "configured-primary" in str(request.url):
+            calls["configured_primary"] += 1
+            return httpx.Response(200, json=_SUCCESS_BODY)
+        calls["forced"] += 1
+        return httpx.Response(200, json=_SUCCESS_BODY)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    providers = {
+        "configured_primary": ProviderConfig(
+            "configured_primary", "https://configured-primary.example/v1", "k", "m"
+        ),
+        "forced_local": ProviderConfig("forced_local", "https://forced-local.example/v1", "k", "m"),
+    }
+    settings = _settings_with(providers, secondary="")
+    gateway = ModelGateway(settings, client=client)
+
+    outcome = await gateway.complete(
+        [ChatMessage(role=Role.USER, content="hi")], force_provider="forced_local"
+    )
+
+    assert outcome.attempted_providers == ["forced_local"]
+    assert calls["configured_primary"] == 0
+    assert calls["forced"] == 1
+
+
+@pytest.mark.anyio
+async def test_complete_with_unknown_force_provider_raises() -> None:
+    providers = {
+        "primary": ProviderConfig("primary", "https://primary.example/v1", "k", "m"),
+    }
+    settings = _settings_with(providers)
+    gateway = ModelGateway(settings)
+
+    try:
+        with pytest.raises(ProviderError):
+            await gateway.complete(
+                [ChatMessage(role=Role.USER, content="hi")], force_provider="nonexistent"
+            )
+    finally:
+        await gateway.aclose()
+
+
+@pytest.mark.anyio
 async def test_embed_returns_result_from_huggingface_provider() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/models/BAAI/bge-small-en-v1.5"

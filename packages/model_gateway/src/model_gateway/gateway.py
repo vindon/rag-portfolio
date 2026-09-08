@@ -112,8 +112,16 @@ class ModelGateway:
         *,
         temperature: float = 0.1,
         max_tokens: int = 1024,
+        force_provider: str | None = None,
     ) -> ChatOutcome:
-        chain = self._settings.llm_fallback_chain()
+        if force_provider is not None:
+            if force_provider not in self._settings.llm_providers:
+                raise ProviderError(
+                    "model_gateway", f"force_provider '{force_provider}' is not configured"
+                )
+            chain = [force_provider]
+        else:
+            chain = self._settings.llm_fallback_chain()
         if not chain:
             raise ProviderError("model_gateway", "no LLM providers configured")
 

@@ -15,7 +15,9 @@
 - Python `>=3.11`; gate tools pinned exactly, matching every other package in this monorepo: `pytest==9.1.1`, `anyio==4.15.1`, `ruff==0.16.6`, `black==26.5.1`, `mypy==2.3.1`.
 - `packages/` gets **strict mypy** (`strict = true`).
 - `asyncpg` itself ships no type stubs (`import-untyped` under strict mypy) — do not add a blanket `ignore_missing_imports` or per-line `# type: ignore` for this. Instead, `asyncpg-stubs==0.31.3` (a real, actively maintained third-party stub package, verified in advance to type-check cleanly against this plan's code) is a **dev dependency** providing real types. This resolves the typing gap properly rather than suppressing it.
-- **Typing detail verified in advance, load-bearing for every task in this plan:** `asyncpg.Pool.acquire()` yields `PoolConnectionProxy`, which is a *different, non-interchangeable* type from `asyncpg.Connection` under `asyncpg-stubs` (confirmed empirically before writing this plan — passing a `PoolConnectionProxy` where `Connection` is expected fails strict mypy with `arg-type`). Therefore: **every function in this package that takes a database connection parameter must type it as `asyncpg.pool.PoolConnectionProxy`, never `asyncpg.Connection`** — and test fixtures must also acquire connections via a `Pool` (never `asyncpg.connect()` directly), so tests and production code share the exact same type. This is not a style preference; typing it as `Connection` will fail strict mypy the moment a pool-acquired connection is passed in.
+- **Typing detail verified in advance, load-bearing for every task in this plan:** `asyncpg.Pool.acquire()` yields `PoolConnectionProxy`, which is a *different, non-interchangeable* type from `asyncpg.Connection` under `asyncpg-stubs` (confirmed empirically before writing this plan, in both directions — passing a `PoolConnectionProxy` where `Connection` is expected fails strict mypy with `arg-type`, and vice versa). Therefore: **every function in `budget.py`/`circuit_breaker.py`/`guard.py` that takes a database connection parameter must type it as `asyncpg.pool.PoolConnectionProxy`, never `asyncpg.Connection`** — and test fixtures for those modules must also acquire connections via a `Pool` (never `asyncpg.connect()` directly), so tests and production code share the exact same type. This is not a style preference; typing it as `Connection` will fail strict mypy the moment a pool-acquired connection is passed in. The one deliberate exception is `schema.py`'s `apply_schema`, which takes a plain `asyncpg.Connection` — schema application is a one-off admin operation (used once at test-session start, and later once during Plan 2c's real-database provisioning), not part of `SpendGuard`'s per-request pooled path, so the distinction is correct there, not an inconsistency.
+- `asyncpg` is pinned to `>=0.30,<0.32` (not an unbounded `>=0.30`) specifically because it's paired with `asyncpg-stubs==0.31.3` — an untested newer `asyncpg` could silently drift from what that stub package models, reintroducing exactly the typing risk this plan spent effort ruling out. If a task needs an `asyncpg` release outside this range, treat that as a reason to re-verify the stub compatibility, not a reason to widen the pin casually.
+- **Budget caps in this plan are platform-global, not per-domain**, even though `budget_ledger.domain` is recorded on every row (for observability/breakdown) and `record_success`/`precheck` both accept identifiers that *could* support per-domain scoping later. Spec §5 doesn't mandate per-domain caps — it says "per-day and per-month `$` caps, configurable" — so global caps satisfy it; per-domain caps are a legitimate future enhancement Plan 2c or later can add without a breaking change (the column is already there), not something Task 4-6 need to build now.
 - No secrets or `.env` files ever committed. The local Postgres connection string used by tests contains no password (local trust/peer auth) — do not add one.
 - Tests must run against a real Postgres, not a mock — this package's entire value is real transactional/persistence behavior (circuit breaker cooldowns, budget sums, `ON CONFLICT` upserts) that a mock would either fake incorrectly or not exercise at all.
 - Any step that pushes to a remote Git host or deploys to a third-party platform is a visible, external action — pause for explicit go-ahead first, per the pattern established in Weeks 1 and 2a. (This plan has no such step — Postgres provisioning and deployment are Plan 2c's job, not this one's.)
@@ -31,7 +33,7 @@
 
 **Interfaces:**
 - Consumes: `model_gateway.pricing.estimate_cost` (already used by `complete()`).
-- Produces: `model_gateway.gateway.EmbedOutcome(result: EmbeddingResult, estimated_cost_usd: float, attempted_providers: list[str])` — Task 6 (`SpendGuard.record_success`) and Plan 2c's `hr_policy` domain will consume `.estimated_cost_usd` and `.result.vectors`. `ModelGateway.embed(...)` now returns `EmbedOutcome` instead of a bare `EmbeddingResult` — this is a breaking change to the just-merged Week 2a API, acceptable because nothing outside this monorepo depends on it yet and nothing inside it calls `embed()` except this plan's own tests.
+- Produces: `model_gateway.gateway.EmbedOutcome(result: EmbeddingResult, estimated_cost_usd: float, attempted_providers: list[str])` — Plan 2c's `hr_policy` domain wiring will consume `.estimated_cost_usd` and `.result.vectors` when it calls `SpendGuard.record_success` after an embedding call (`packages/spend_guard` itself has no dependency on `model_gateway` — see Task 6's `pyproject.toml`, which depends only on `asyncpg`). `ModelGateway.embed(...)` now returns `EmbedOutcome` instead of a bare `EmbeddingResult` — this is a breaking change to the just-merged Week 2a API, acceptable because nothing outside this monorepo depends on it yet and nothing inside it calls `embed()` except this plan's own tests.
 
 - [ ] **Step 1: Update the two existing embed tests for the new return shape, and add a cost-assertion test**
 
@@ -64,12 +66,17 @@ async def test_embed_returns_cost_estimate_from_real_pricing_row() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
-            json={"data": [{"index": 0, "embedding": [0.1, 0.2]}], "usage": {"prompt_tokens": 1_000_000}},
+            json={
+                "data": [{"index": 0, "embedding": [0.1, 0.2]}],
+                "usage": {"prompt_tokens": 1_000_000},
+            },
         )
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     providers = {
-        "openai": ProviderConfig("openai", "https://api.openai.com/v1", "k", "text-embedding-3-small"),
+        "openai": ProviderConfig(
+            "openai", "https://api.openai.com/v1", "k", "text-embedding-3-small"
+        ),
     }
     settings = GatewaySettings(
         llm_primary="",
@@ -96,7 +103,7 @@ async def test_embed_returns_cost_estimate_from_real_pricing_row() -> None:
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `cd packages/model_gateway && .venv/bin/pytest tests/test_gateway.py -v` (reuse the existing venv from Week 2a — it's already set up in this worktree).
-Expected: the two modified tests FAIL (they call `.vectors`/`.provider` on what is still a plain `EmbeddingResult`, so `outcome.result` doesn't exist yet — actually, since you haven't changed `embed()` yet, the variable is still named `result` in the test file at this point and calling `.result` on it will fail); the new test FAILS or errors since `outcome.estimated_cost_usd`/`outcome.attempted_providers` don't exist on a bare `EmbeddingResult`.
+Expected: all three tests FAIL/ERROR — `embed()` still returns a bare `EmbeddingResult` at this point, so `outcome.result` raises `AttributeError: 'EmbeddingResult' object has no attribute 'result'` in the two modified tests, and the new test's `outcome.estimated_cost_usd`/`outcome.attempted_providers` assertions fail the same way.
 
 - [ ] **Step 3: Modify `gateway.py`**
 
@@ -254,11 +261,16 @@ async def test_complete_with_unknown_force_provider_raises() -> None:
     settings = _settings_with(providers)
     gateway = ModelGateway(settings)
 
-    with pytest.raises(ProviderError):
-        await gateway.complete(
-            [ChatMessage(role=Role.USER, content="hi")], force_provider="nonexistent"
-        )
+    try:
+        with pytest.raises(ProviderError):
+            await gateway.complete(
+                [ChatMessage(role=Role.USER, content="hi")], force_provider="nonexistent"
+            )
+    finally:
+        await gateway.aclose()
 ```
+
+(No client is injected here, so `ModelGateway` owns a real `httpx.AsyncClient` — close it in `finally`, matching the existing `test_complete_raises_when_chain_is_empty` test elsewhere in this file.)
 
 (`_settings_with` and `_SUCCESS_BODY` are the existing helpers already defined near the top of this test file — reuse them, don't redefine.)
 
@@ -319,12 +331,14 @@ git commit -m "feat(model-gateway): add force_provider to complete() for downgra
 - Create: `packages/spend_guard/pyproject.toml`
 - Create: `packages/spend_guard/src/spend_guard/__init__.py`
 - Create: `packages/spend_guard/src/spend_guard/schema.sql`
+- Create: `packages/spend_guard/src/spend_guard/schema.py`
 - Create: `packages/spend_guard/tests/conftest.py`
 - Test: `packages/spend_guard/tests/test_schema_bootstrap.py`
 
 **Interfaces:**
 - Produces: `spend_guard/schema.sql` — the three tables (`budget_ledger`, `circuit_breaker_state`, `global_breaker_state`) every later task's SQL queries assume exist.
-- Produces: `tests/conftest.py`'s `TEST_DATABASE_URL` (module constant), `anyio_backend` fixture, and a `pytest_configure` hook that creates the test database (if missing) and applies the schema once per test session — every later task's tests rely on this running first, automatically (no manual setup step).
+- Produces: `spend_guard.schema.SCHEMA_SQL` (the schema file's text, loaded via `importlib.resources` so it works identically whether the package is installed editable or as a real wheel) and `spend_guard.schema.apply_schema(conn: asyncpg.Connection) -> None` — a small public API so Plan 2c can apply this schema to a real Supabase/Postgres instance without re-deriving the file path or duplicating the DDL. Note this takes a plain `asyncpg.Connection`, not a `PoolConnectionProxy` — schema application is a one-off admin operation (run once at test-session start here, and once during Plan 2c's real-database provisioning), architecturally distinct from the per-request pooled functions Tasks 4-6 build, which do use `PoolConnectionProxy` per this plan's Global Constraints.
+- Produces: `tests/conftest.py`'s `TEST_DATABASE_URL` (module constant), `anyio_backend` fixture, and a `pytest_configure` hook that creates the test database (if missing) and applies the schema once per test session, via `spend_guard.schema.apply_schema` — every later task's tests rely on this running first, automatically (no manual setup step).
 
 - [ ] **Step 1: Write the package config**
 
@@ -336,7 +350,7 @@ name = "spend-guard"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
-    "asyncpg>=0.30",
+    "asyncpg>=0.30,<0.32",
 ]
 
 [project.optional-dependencies]
@@ -407,6 +421,22 @@ CREATE TABLE IF NOT EXISTS global_breaker_state (
 );
 ```
 
+Create `packages/spend_guard/src/spend_guard/schema.py`:
+
+```python
+from __future__ import annotations
+
+from importlib import resources
+
+import asyncpg
+
+SCHEMA_SQL = resources.files("spend_guard").joinpath("schema.sql").read_text()
+
+
+async def apply_schema(conn: asyncpg.Connection) -> None:
+    await conn.execute(SCHEMA_SQL)
+```
+
 - [ ] **Step 3: Write the failing test**
 
 Create `packages/spend_guard/tests/test_schema_bootstrap.py`. Note: this test file reads `TEST_DATABASE_URL` from the environment directly (same default as `conftest.py`) rather than importing it from `conftest` — `tests/` has no `__init__.py`, so under pytest's default import mode `tests.conftest` is not an importable dotted path from a sibling test module. `conftest.py`'s fixtures (like `anyio_backend`) are still auto-discovered by pytest normally; only the plain constant needs this small, deliberate duplication. Every task's test file in this plan follows the same pattern — copy it exactly, don't try to import across test files.
@@ -450,7 +480,7 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 pytest -v
 ```
-Expected: FAIL — `tests.conftest` (specifically `TEST_DATABASE_URL` and the bootstrap hook) doesn't exist yet, so this errors at collection.
+Expected: FAIL — `conftest.py` doesn't exist yet, so `pytest_configure` never bootstraps the database, and the test fails at `await asyncpg.create_pool(TEST_DATABASE_URL, ...)` with `asyncpg.InvalidCatalogNameError` (the `spend_guard_test` database doesn't exist yet). Collection itself succeeds — this test file deliberately doesn't import anything from `conftest` (see the note above), and `pytest-anyio` (via the `anyio` package, already a dev dependency) supplies its own default `anyio_backend` fixture even before `conftest.py` exists.
 
 - [ ] **Step 5: Write conftest.py**
 
@@ -461,12 +491,12 @@ from __future__ import annotations
 
 import asyncio
 import os
-from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 import asyncpg
 import pytest
 
-_SCHEMA_PATH = Path(__file__).parent.parent / "src" / "spend_guard" / "schema.sql"
+from spend_guard.schema import apply_schema
 
 TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL", "postgresql://vinoth@localhost:5432/spend_guard_test"
@@ -478,9 +508,15 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
+def _admin_dsn_and_db_name() -> tuple[str, str]:
+    parts = urlsplit(TEST_DATABASE_URL)
+    db_name = parts.path.lstrip("/")
+    admin_dsn = urlunsplit((parts.scheme, parts.netloc, "/postgres", parts.query, parts.fragment))
+    return admin_dsn, db_name
+
+
 async def _ensure_database_exists() -> None:
-    base, _, db_name = TEST_DATABASE_URL.rpartition("/")
-    admin_dsn = f"{base}/postgres"
+    admin_dsn, db_name = _admin_dsn_and_db_name()
     conn = await asyncpg.connect(admin_dsn)
     try:
         exists = await conn.fetchval("SELECT 1 FROM pg_database WHERE datname = $1", db_name)
@@ -493,7 +529,7 @@ async def _ensure_database_exists() -> None:
 async def _apply_schema() -> None:
     conn = await asyncpg.connect(TEST_DATABASE_URL)
     try:
-        await conn.execute(_SCHEMA_PATH.read_text())
+        await apply_schema(conn)
     finally:
         await conn.close()
 
@@ -502,6 +538,8 @@ def pytest_configure(config: pytest.Config) -> None:
     asyncio.run(_ensure_database_exists())
     asyncio.run(_apply_schema())
 ```
+
+(Using `urllib.parse.urlsplit`/`urlunsplit` instead of a plain `rpartition("/")` split means this correctly handles a DSN with a query string too — e.g. `?sslmode=require`, which Plan 2c's real Supabase/Neon connection string will likely have — not just the simple local/CI DSNs this plan's own tests use.)
 
 - [ ] **Step 6: Run test to verify it passes**
 
@@ -530,7 +568,7 @@ git commit -m "feat(spend-guard): add package skeleton, DB schema, and test data
 
 **Interfaces:**
 - Consumes: `spend_guard.schema.sql`'s `budget_ledger` table (Task 3).
-- Produces: `spend_guard.budget.BudgetStatus(spent_today_usd, spent_this_month_usd, daily_cap_usd, monthly_cap_usd)` with a `.within_budget` property; `spend_guard.budget.get_budget_status(conn: asyncpg.pool.PoolConnectionProxy, *, daily_cap_usd: float, monthly_cap_usd: float) -> BudgetStatus`; `spend_guard.budget.record_spend(conn: asyncpg.pool.PoolConnectionProxy, *, domain: str, provider: str, cost_usd: float) -> None` — Task 6's `SpendGuard` facade calls both.
+- Produces: `spend_guard.budget.BudgetStatus(spent_today_usd, spent_this_month_usd, daily_cap_usd, monthly_cap_usd)` with a `.within_budget` property (an informational convenience — "is *current* spend already over cap", useful for status/observability endpoints); `spend_guard.budget.get_budget_status(conn: asyncpg.pool.PoolConnectionProxy, *, daily_cap_usd: float, monthly_cap_usd: float) -> BudgetStatus`; `spend_guard.budget.record_spend(conn: asyncpg.pool.PoolConnectionProxy, *, domain: str, provider: str, cost_usd: float) -> None` — Task 6's `SpendGuard` facade calls both. Note `SpendGuard.precheck()` (Task 6) does NOT use `.within_budget` — it computes its own *projected* spend (current + the call about to be made) against the caps, which is a stricter, forward-looking check appropriate for a pre-call gate; `.within_budget` reflects spend already recorded, which is what you'd want for a dashboard/status view instead.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -788,6 +826,36 @@ async def test_global_breaker_trips_and_reports_tripped(
     await trip_global_breaker(db_conn)
 
     assert await is_global_breaker_tripped(db_conn, cooldown_seconds=300) is True
+
+
+@pytest.mark.anyio
+async def test_provider_retrips_after_cooldown_expires_and_failures_resume(
+    db_conn: asyncpg.pool.PoolConnectionProxy,
+) -> None:
+    # Regression test for a real bug caught during plan review: a naive
+    # "only set tripped_at if it's currently NULL" UPDATE means a provider
+    # that trips once, has its cooldown expire, and then fails again would
+    # never re-trip — is_provider_tripped() would report it as healthy
+    # forever, no matter how many further consecutive failures accumulate,
+    # because the stale tripped_at timestamp is already outside the cooldown
+    # window and nothing ever refreshes it.
+    for _ in range(5):
+        await record_provider_failure(db_conn, provider="groq", threshold=5)
+    assert await is_provider_tripped(db_conn, provider="groq", cooldown_seconds=300) is True
+
+    # Simulate the cooldown window having already elapsed by back-dating
+    # tripped_at, rather than sleeping 300 real seconds in a test.
+    await db_conn.execute(
+        "UPDATE circuit_breaker_state SET tripped_at = now() - interval '600 seconds' "
+        "WHERE provider = $1",
+        "groq",
+    )
+    assert await is_provider_tripped(db_conn, provider="groq", cooldown_seconds=300) is False
+
+    status = await record_provider_failure(db_conn, provider="groq", threshold=5)
+
+    assert status.tripped is True
+    assert await is_provider_tripped(db_conn, provider="groq", cooldown_seconds=300) is True
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -803,7 +871,7 @@ Create `packages/spend_guard/src/spend_guard/circuit_breaker.py`:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import asyncpg
 
@@ -832,15 +900,26 @@ async def record_provider_failure(
     failures = int(row["consecutive_failures"])
     tripped = failures >= threshold
     if tripped:
+        # Unconditionally refresh tripped_at on every trip-condition hit — not
+        # just the first time. A prior version of this only set tripped_at
+        # WHERE tripped_at IS NULL, so once a provider's cooldown expired and
+        # its trip flag was "stale" (still set from the earlier trip, just
+        # outside the cooldown window), a fresh 5th-consecutive-failure would
+        # correctly compute tripped=True here but the UPDATE would silently
+        # no-op (tripped_at was already non-NULL), leaving the stale timestamp
+        # in place — which is now further in the past, not closer, so
+        # is_provider_tripped() would report the provider healthy forever
+        # after the first cooldown, no matter how many more failures piled up.
         await conn.execute(
-            "UPDATE circuit_breaker_state SET tripped_at = now() "
-            "WHERE provider = $1 AND tripped_at IS NULL",
+            "UPDATE circuit_breaker_state SET tripped_at = now() WHERE provider = $1",
             provider,
         )
     return BreakerStatus(tripped=tripped, consecutive_failures=failures)
 
 
-async def record_provider_success(conn: asyncpg.pool.PoolConnectionProxy, *, provider: str) -> None:
+async def record_provider_success(
+    conn: asyncpg.pool.PoolConnectionProxy, *, provider: str
+) -> None:
     await conn.execute(
         """
         INSERT INTO circuit_breaker_state (provider, consecutive_failures, tripped_at, updated_at)
@@ -861,7 +940,7 @@ async def is_provider_tripped(
     if row is None or row["tripped_at"] is None:
         return False
     tripped_at: datetime = row["tripped_at"]
-    return datetime.now(timezone.utc) - tripped_at < timedelta(seconds=cooldown_seconds)
+    return datetime.now(UTC) - tripped_at < timedelta(seconds=cooldown_seconds)
 
 
 async def get_spend_velocity(conn: asyncpg.pool.PoolConnectionProxy) -> float:
@@ -873,13 +952,11 @@ async def get_spend_velocity(conn: asyncpg.pool.PoolConnectionProxy) -> float:
 
 
 async def trip_global_breaker(conn: asyncpg.pool.PoolConnectionProxy) -> None:
-    await conn.execute(
-        """
+    await conn.execute("""
         INSERT INTO global_breaker_state (id, tripped_at, updated_at)
         VALUES (1, now(), now())
         ON CONFLICT (id) DO UPDATE SET tripped_at = now(), updated_at = now()
-        """
-    )
+        """)
 
 
 async def is_global_breaker_tripped(
@@ -889,18 +966,18 @@ async def is_global_breaker_tripped(
     if row is None or row["tripped_at"] is None:
         return False
     tripped_at: datetime = row["tripped_at"]
-    return datetime.now(timezone.utc) - tripped_at < timedelta(seconds=cooldown_seconds)
+    return datetime.now(UTC) - tripped_at < timedelta(seconds=cooldown_seconds)
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `pytest tests/test_circuit_breaker.py -v`
-Expected: all 5 PASS.
+Expected: all 6 PASS.
 
 - [ ] **Step 5: Run quality gates locally**
 
 Run: `ruff check . && black --check . && mypy src`
-Expected: clean.
+Expected: clean. (`ruff` selects `UP` (pyupgrade) — `datetime.UTC` rather than `datetime.timezone.utc` is required under this plan's `target-version = "py311"`, matching `model_gateway`'s existing `StrEnum` precedent from Week 2a.)
 
 - [ ] **Step 6: Commit**
 
@@ -920,7 +997,7 @@ git commit -m "feat(spend-guard): add per-provider circuit breaker and global sp
 
 **Interfaces:**
 - Consumes: everything from Tasks 4-5 (`budget.{get_budget_status, record_spend}`, `circuit_breaker.*`).
-- Produces: `spend_guard.guard.SpendDecision` (str Enum: `ALLOW`, `DOWNGRADE_TO_LOCAL`, `BLOCK`); `spend_guard.guard.SpendGuard` with `precheck(estimated_cost_usd, *, has_local_fallback=True) -> SpendDecision`, `record_success(cost_usd, *, domain, provider) -> None`, `record_failure(*, provider) -> bool` (returns whether that provider is now tripped), `is_provider_available(*, provider) -> bool`, `aclose() -> None`; `spend_guard.guard.create_spend_guard(dsn=None, *, env=None) -> SpendGuard` (env-driven factory) — Plan 2c's `hr_policy` domain wiring is the consumer, mirroring how `apps/api`'s lifespan will construct one `ModelGateway` and one `SpendGuard` at startup and close both at shutdown.
+- Produces: `spend_guard.guard.SpendDecision` (`StrEnum`: `ALLOW`, `DOWNGRADE_TO_LOCAL`, `BLOCK_CIRCUIT_BREAKER`, `BLOCK_VELOCITY_SPIKE`, `BLOCK_BUDGET_EXCEEDED`, plus an `.is_blocked` property) — spec §5 explicitly requires "a clear, user-facing 'budget exceeded' message — never a generic error", so a single undifferentiated `BLOCK` (as an earlier draft of this plan had) can't satisfy that; Plan 2c's domain code needs to know *why* it was blocked to produce the right message. `spend_guard.guard.SpendGuard` with `precheck(estimated_cost_usd, *, has_local_fallback=True) -> SpendDecision`, `record_success(cost_usd, *, domain, provider) -> None`, `record_failure(*, provider) -> bool` (returns whether that provider is now tripped), `is_provider_available(*, provider) -> bool`, `aclose() -> None`; `spend_guard.guard.create_spend_guard(dsn=None, *, env=None) -> SpendGuard` (env-driven factory) — Plan 2c's `hr_policy` domain wiring is the consumer, mirroring how `apps/api`'s lifespan will construct one `ModelGateway` and one `SpendGuard` at startup and close both at shutdown.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1002,11 +1079,14 @@ async def test_precheck_blocks_when_over_daily_cap_and_no_local_fallback(
 
     decision = await guard.precheck(0.10, has_local_fallback=False)
 
-    assert decision == SpendDecision.BLOCK
+    assert decision == SpendDecision.BLOCK_BUDGET_EXCEEDED
+    assert decision.is_blocked is True
 
 
 @pytest.mark.anyio
-async def test_precheck_blocks_when_velocity_threshold_exceeded(clean_db: None) -> None:
+async def test_precheck_blocks_when_velocity_threshold_exceeded_then_stays_blocked(
+    clean_db: None,
+) -> None:
     # Uses its own guard (not the shared `guard` fixture) so the low velocity
     # threshold here doesn't leak into the budget-cap tests above, and a high
     # daily cap so this test's spend can never be mistaken for a budget-cap trip.
@@ -1023,9 +1103,40 @@ async def test_precheck_blocks_when_velocity_threshold_exceeded(clean_db: None) 
     try:
         await g.record_success(0.60, domain="hr_policy", provider="groq")
 
-        decision = await g.precheck(0.01)
+        first_decision = await g.precheck(0.01)
+        assert first_decision == SpendDecision.BLOCK_VELOCITY_SPIKE
 
-        assert decision == SpendDecision.BLOCK
+        # A second precheck call finds the global breaker already tripped by
+        # the first call — this is the BLOCK_CIRCUIT_BREAKER path, distinct
+        # from freshly detecting a velocity spike.
+        second_decision = await g.precheck(0.01)
+        assert second_decision == SpendDecision.BLOCK_CIRCUIT_BREAKER
+    finally:
+        await g.aclose()
+
+
+@pytest.mark.anyio
+async def test_create_spend_guard_uses_production_defaults_and_does_not_trip_on_one_normal_call(
+    clean_db: None,
+) -> None:
+    # Regression test for a real design gap caught during plan review: the
+    # production-default daily cap ($1.00) and an earlier draft's default
+    # velocity threshold ($0.50/min) were mutually incoherent — any single
+    # realistic LLM call costing more than $0.50 would trip a platform-wide
+    # halt on its very first use, which is not what the spec's "abnormal
+    # spike (e.g. a runaway loop)" language describes. This test exercises
+    # the actual production defaults (no env overrides at all beyond DSN)
+    # and confirms one normal-sized call is fine, while a clearly-abnormal
+    # single spend still trips it.
+    g = await create_spend_guard(TEST_DATABASE_URL, env={})
+    try:
+        await g.record_success(0.30, domain="hr_policy", provider="groq")
+        decision = await g.precheck(0.01)
+        assert decision == SpendDecision.ALLOW
+
+        await g.record_success(5.00, domain="hr_policy", provider="groq")
+        decision = await g.precheck(0.01)
+        assert decision.is_blocked is True
     finally:
         await g.aclose()
 
@@ -1058,6 +1169,29 @@ async def test_record_success_resets_provider_availability(guard: SpendGuard) ->
 
 
 @pytest.mark.anyio
+async def test_breaker_state_persists_across_guard_restart(clean_db: None) -> None:
+    # Exercises spec §5's headline reason for choosing Postgres over an
+    # in-memory/SQLite store: "a process restart doesn't silently clear a
+    # tripped breaker." Trip a provider via one SpendGuard instance, close
+    # it (simulating a process restart), then build a brand-new SpendGuard
+    # against the same DSN and confirm the trip is still visible.
+    guard_a = await create_spend_guard(
+        TEST_DATABASE_URL,
+        env={"SPEND_GUARD_CIRCUIT_BREAKER_THRESHOLD": "2"},
+    )
+    for _ in range(2):
+        await guard_a.record_failure(provider="groq")
+    assert await guard_a.is_provider_available(provider="groq") is False
+    await guard_a.aclose()
+
+    guard_b = await create_spend_guard(TEST_DATABASE_URL, env={})
+    try:
+        assert await guard_b.is_provider_available(provider="groq") is False
+    finally:
+        await guard_b.aclose()
+
+
+@pytest.mark.anyio
 async def test_create_spend_guard_raises_without_dsn() -> None:
     with pytest.raises(ValueError, match="DATABASE_URL"):
         await create_spend_guard(env={})
@@ -1075,18 +1209,31 @@ Create `packages/spend_guard/src/spend_guard/guard.py`:
 ```python
 from __future__ import annotations
 
+import logging
 import os
-from enum import Enum
+from enum import StrEnum
 
 import asyncpg
 
 from spend_guard import budget, circuit_breaker
 
+logger = logging.getLogger(__name__)
 
-class SpendDecision(str, Enum):
+
+class SpendDecision(StrEnum):
     ALLOW = "allow"
     DOWNGRADE_TO_LOCAL = "downgrade_to_local"
-    BLOCK = "block"
+    BLOCK_CIRCUIT_BREAKER = "block_circuit_breaker"
+    BLOCK_VELOCITY_SPIKE = "block_velocity_spike"
+    BLOCK_BUDGET_EXCEEDED = "block_budget_exceeded"
+
+    @property
+    def is_blocked(self) -> bool:
+        return self in {
+            SpendDecision.BLOCK_CIRCUIT_BREAKER,
+            SpendDecision.BLOCK_VELOCITY_SPIKE,
+            SpendDecision.BLOCK_BUDGET_EXCEEDED,
+        }
 
 
 class SpendGuard:
@@ -1114,32 +1261,50 @@ class SpendGuard:
             if await circuit_breaker.is_global_breaker_tripped(
                 conn, cooldown_seconds=self._circuit_breaker_cooldown_seconds
             ):
-                return SpendDecision.BLOCK
+                logger.warning("spend_guard.precheck.blocked reason=circuit_breaker_tripped")
+                return SpendDecision.BLOCK_CIRCUIT_BREAKER
 
             velocity = await circuit_breaker.get_spend_velocity(conn)
             if velocity >= self._velocity_threshold_usd_per_minute:
                 await circuit_breaker.trip_global_breaker(conn)
-                return SpendDecision.BLOCK
+                logger.critical(
+                    "spend_guard.precheck.blocked reason=velocity_spike "
+                    "velocity_usd_per_minute=%.4f threshold_usd_per_minute=%.4f",
+                    velocity,
+                    self._velocity_threshold_usd_per_minute,
+                )
+                return SpendDecision.BLOCK_VELOCITY_SPIKE
 
             status = await budget.get_budget_status(
                 conn, daily_cap_usd=self._daily_cap_usd, monthly_cap_usd=self._monthly_cap_usd
             )
             projected_today = status.spent_today_usd + estimated_cost_usd
             projected_month = status.spent_this_month_usd + estimated_cost_usd
-            if (
+            over_budget = (
                 projected_today > status.daily_cap_usd
                 or projected_month > status.monthly_cap_usd
-            ):
-                return (
-                    SpendDecision.DOWNGRADE_TO_LOCAL
-                    if has_local_fallback
-                    else SpendDecision.BLOCK
+            )
+            if over_budget and has_local_fallback:
+                logger.warning(
+                    "spend_guard.precheck.downgraded reason=budget_exceeded "
+                    "projected_today_usd=%.4f daily_cap_usd=%.4f",
+                    projected_today,
+                    status.daily_cap_usd,
                 )
+                return SpendDecision.DOWNGRADE_TO_LOCAL
+            if over_budget:
+                logger.warning(
+                    "spend_guard.precheck.blocked reason=budget_exceeded_no_fallback "
+                    "projected_today_usd=%.4f daily_cap_usd=%.4f",
+                    projected_today,
+                    status.daily_cap_usd,
+                )
+                return SpendDecision.BLOCK_BUDGET_EXCEEDED
 
         return SpendDecision.ALLOW
 
     async def record_success(self, cost_usd: float, *, domain: str, provider: str) -> None:
-        async with self._pool.acquire() as conn:
+        async with self._pool.acquire() as conn, conn.transaction():
             await budget.record_spend(conn, domain=domain, provider=provider, cost_usd=cost_usd)
             await circuit_breaker.record_provider_success(conn, provider=provider)
 
@@ -1147,6 +1312,12 @@ class SpendGuard:
         async with self._pool.acquire() as conn:
             status = await circuit_breaker.record_provider_failure(
                 conn, provider=provider, threshold=self._circuit_breaker_threshold
+            )
+        if status.tripped:
+            logger.warning(
+                "spend_guard.circuit_breaker.tripped provider=%s consecutive_failures=%d",
+                provider,
+                status.consecutive_failures,
             )
         return status.tripped
 
@@ -1177,10 +1348,12 @@ async def create_spend_guard(
             source.get("SPEND_GUARD_CIRCUIT_BREAKER_COOLDOWN_SECONDS", "300")
         ),
         velocity_threshold_usd_per_minute=float(
-            source.get("SPEND_GUARD_VELOCITY_THRESHOLD_USD_PER_MINUTE", "0.50")
+            source.get("SPEND_GUARD_VELOCITY_THRESHOLD_USD_PER_MINUTE", "2.00")
         ),
     )
 ```
+
+(Velocity threshold's production default is `2.00` $/min, not the `0.50` an earlier draft of this plan used — see the new `test_create_spend_guard_uses_production_defaults_and_does_not_trip_on_one_normal_call` test above for why: at `0.50`, a single realistic LLM call could trip a platform-wide halt on its very first use, which contradicts spec §5's framing of the velocity breaker as catching "an abnormal spike (e.g. a runaway loop)", not normal single-call cost.)
 
 Modify `packages/spend_guard/src/spend_guard/__init__.py` to re-export the public entrypoint:
 
@@ -1193,7 +1366,7 @@ __all__ = ["SpendDecision", "SpendGuard", "create_spend_guard"]
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `pytest tests/test_guard.py -v`
-Expected: all 7 PASS. Full package suite: `pytest -v` should show all tests across `test_schema_bootstrap.py`, `test_budget.py`, `test_circuit_breaker.py`, `test_guard.py` passing (1 + 3 + 5 + 7 = 16 total).
+Expected: all 9 PASS. Full package suite: `pytest -v` should show all tests across `test_schema_bootstrap.py`, `test_budget.py`, `test_circuit_breaker.py`, `test_guard.py` passing (1 + 3 + 6 + 9 = 19 total).
 
 - [ ] **Step 5: Run quality gates locally**
 
@@ -1301,7 +1474,9 @@ Expected: response JSON lists all four contexts under `required_status_checks.co
 ## Plan 2b Exit Criteria
 
 - [ ] `packages/model_gateway`'s `embed()` now returns cost/logging parity with `complete()`, and `complete()` supports `force_provider` for downgrade — both covered by new tests, full suite (39 tests) passing.
-- [ ] `packages/spend_guard` has zero-tolerance-clean ruff/black/strict-mypy and a full passing test suite (16 tests) against a **real** local Postgres instance — no database mocking.
-- [ ] Budget enforcement (daily/monthly caps, ALLOW/DOWNGRADE_TO_LOCAL/BLOCK decisions) and the circuit breaker (per-provider consecutive-failure trip/cooldown, global spend-velocity trip) are both demonstrated by tests, not just claimed.
+- [ ] `packages/spend_guard` has zero-tolerance-clean ruff/black/strict-mypy and a full passing test suite (19 tests) against a **real** local Postgres instance — no database mocking.
+- [ ] Budget enforcement (daily/monthly caps, ALLOW / DOWNGRADE_TO_LOCAL / three distinguishable BLOCK reasons) and the circuit breaker (per-provider consecutive-failure trip/cooldown that correctly *re-trips* after a cooldown expires and failures resume — not just trips once, ever — plus a global spend-velocity trip) are both demonstrated by tests, not just claimed.
+- [ ] Spec §5's specific rationale for choosing Postgres — "a process restart doesn't silently clear a tripped breaker" — is directly demonstrated by a test (build a `SpendGuard`, trip a provider, close it, build a brand-new one against the same DSN, confirm the trip persists), not just architecturally true.
+- [ ] `SpendGuard.precheck()`'s three BLOCK cases (circuit breaker already tripped, velocity spike, budget exceeded with no local fallback) are logged with enough structure to actually debug a real incident, and the global-breaker/velocity trip specifically logs at `CRITICAL`, per spec §5's "logs a critical alert."
 - [ ] CI enforces this package the same way it enforces `apps/api`, `apps/web`, and `packages/model_gateway`.
 - [ ] Nothing in this plan touches Postgres provisioning (Supabase), deployment, or any domain's actual HTTP endpoints — those are Plan 2c.

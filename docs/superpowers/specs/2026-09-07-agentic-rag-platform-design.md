@@ -52,7 +52,7 @@ v1:
 rag-portfolio/
 ├── apps/
 │   ├── web/                  # Next.js frontend (Vercel)
-│   └── api/                  # FastAPI gateway (Fly.io/Render)
+│   └── api/                  # FastAPI gateway (Render)
 │       ├── domains/
 │       │   ├── hr_policy/
 │       │   ├── contract_review/
@@ -66,9 +66,12 @@ rag-portfolio/
 │   ├── evals/                # golden sets + evaluators + CI gate runner
 │   ├── governance/           # PII redaction, moderation, audit log, model cards
 │   └── spend_guard/          # budget tracking + circuit breaker
-├── infra/                    # IaC / deploy configs (Fly.toml, vercel.json, CI)
+├── infra/                    # IaC / deploy configs (vercel.json, CI)
 └── docs/
 ```
+
+(`render.yaml` itself must live at the repo root per Render's Blueprint convention,
+not under `infra/`.)
 
 Each of the 5 original apps becomes a **domain module** under `apps/api/domains/`,
 reusing shared packages instead of duplicating logic (today's `shared/` module is the
@@ -285,12 +288,19 @@ Applied uniformly across `apps/` and `packages/`:
 | Layer | Choice | Why |
 |---|---|---|
 | Frontend | Next.js on Vercel (free tier) | Native fit, zero-config previews |
-| API | FastAPI, containerized, on Fly.io (free tier) | Better scale-up story than Render if this ever needs to grow |
+| API | FastAPI, containerized, on Render (free tier) | Docker runtime via `render.yaml` Blueprint at repo root |
 | Budget/audit/eval DB | Postgres via Neon or Supabase (free tier) | Real shared state, survives redeploys |
 | Vector stores | Unchanged per-domain: in-memory (01/02), Qdrant (03), Milvus Lite (04), Weaviate embedded (05) | Preserves the deliberate variety already in the portfolio — itself a teaching point |
 | CI/CD | GitHub Actions (free on public repos) | Standard, well-understood |
-| Secrets | Provider-native secret managers (Vercel/Fly env vars) | Never committed to git |
+| Secrets | Provider-native secret managers (Vercel/Render env vars) | Never committed to git |
 | Domain | Custom domain (~$10-12/yr) | Only realistic recurring cost; materially improves professional presentation |
+
+**Amendment (2026-09-08):** API hosting changed from Fly.io to Render. Original
+rationale for Fly.io: "Better scale-up story than Render if this ever needs to
+grow." Actual reason for the swap: the user already held Render + Vercel
+accounts and found Fly.io's pricing costly for this project's needs. The table
+above has been updated to describe Render directly; this note preserves the
+original decision trail rather than silently erasing it.
 
 ## 12. GTM Strategy
 

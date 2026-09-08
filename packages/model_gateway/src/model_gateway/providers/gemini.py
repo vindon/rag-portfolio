@@ -37,6 +37,7 @@ class GeminiProvider:
         temperature: float = 0.1,
         max_tokens: int = 1024,
     ) -> CompletionResult:
+        model = model.removeprefix("models/")
         system_text = "\n".join(m.content for m in messages if m.role == Role.SYSTEM)
         contents = [
             {
@@ -80,6 +81,7 @@ class GeminiProvider:
         )
 
     async def embed(self, texts: list[str], *, model: str) -> EmbeddingResult:
+        model = model.removeprefix("models/")
         start = time.monotonic()
         vectors: list[list[float]] = []
         for text in texts:

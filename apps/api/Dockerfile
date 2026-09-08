@@ -7,6 +7,9 @@ COPY src ./src
 
 RUN pip install --no-cache-dir .
 
+RUN useradd --create-home --uid 1000 app
+USER app
+
 EXPOSE 8080
 
 CMD ["uvicorn", "gateway.main:app", "--host", "0.0.0.0", "--port", "8080"]

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import time
-from urllib.parse import urlparse
 
 import httpx
 
@@ -25,9 +24,7 @@ class OpenAICompatibleProvider:
         client: httpx.AsyncClient | None = None,
     ) -> None:
         self.provider_name = provider_name
-        # Parse base_url to extract scheme and netloc only (ignore any path component)
-        parsed = urlparse(base_url.rstrip("/"))
-        self._base_url = f"{parsed.scheme}://{parsed.netloc}"
+        self._base_url = base_url.rstrip("/")
         self._api_key = api_key
         self._timeout = timeout_seconds
         self._client = client or httpx.AsyncClient()

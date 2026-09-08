@@ -10,7 +10,7 @@ from model_gateway.types import ChatMessage, ProviderAPIError, Role
 @pytest.mark.anyio
 async def test_complete_returns_parsed_result() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/chat/completions"
+        assert request.url.path == "/openai/v1/chat/completions"
         return httpx.Response(
             200,
             json={
@@ -80,7 +80,7 @@ async def test_complete_raises_on_error_status() -> None:
 @pytest.mark.anyio
 async def test_embed_returns_vectors_in_index_order() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/embeddings"
+        assert request.url.path == "/v1/embeddings"
         return httpx.Response(
             200,
             json={

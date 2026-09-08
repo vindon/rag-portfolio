@@ -8,6 +8,17 @@ fallback system that works by editing a single `.env` line.
 
 ---
 
+## Live Platform
+
+This portfolio is being rebuilt into a unified, governed, cost-controlled agentic AI
+platform per [`docs/superpowers/specs/2026-09-07-agentic-rag-platform-design.md`](docs/superpowers/specs/2026-09-07-agentic-rag-platform-design.md).
+Week 1 (platform foundation) is live:
+
+- **Frontend:** https://rag-portfolio-web.vercel.app
+- **API:** https://rag-portfolio-api-w57v.onrender.com (`/health`, `/api/v1/{domain}/status`)
+
+---
+
 ## Projects at a Glance
 
 | # | Project | Concepts | Vector DB | Interface |

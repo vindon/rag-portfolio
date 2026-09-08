@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-07-agentic-rag-platform-design.md` (see §3.1-3.3 for the monorepo layout this plan builds, §9 for the code-quality gate, §11 for the infra choices, §13 Week 1 row for exit criteria).
 
+> **Amendment (2026-09-08):** Task 3 and Task 7 as written below describe deploying via Fly.io (`fly.toml`, `fly deploy`). Mid-execution, API hosting was switched to Render instead — see `render.yaml` at the repo root and the design spec's §11 amendment for the reasoning. The Fly.io-specific steps below are historical record of the original plan, not what was actually executed.
+
 ## Global Constraints
 
 - Python source targets `>=3.11`; container base image is `python:3.12-slim` (spec §11 infra table; existing repo README already requires Python 3.11+).
@@ -280,6 +282,8 @@ git commit -m "feat(api): add stub routers for all 5 domains"
 ```
 
 ---
+
+> Note: executed with Render instead of Fly.io — see amendment above.
 
 ### Task 3: Containerize the API for Fly.io
 
@@ -701,6 +705,8 @@ git branch -D ci-gate-check
 Expected: PR closed, remote and local throwaway branches deleted, `main` unaffected.
 
 ---
+
+> Note: executed with Render instead of Fly.io — see amendment above.
 
 ### Task 7: Deploy both apps to free-tier hosting and link from firstbloc.in
 

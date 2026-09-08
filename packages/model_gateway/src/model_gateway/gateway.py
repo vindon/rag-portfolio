@@ -90,11 +90,17 @@ class ModelGateway:
                 config, timeout=self._settings.timeout_seconds, client=self._client
             )
             request_id = str(uuid.uuid4())
+
+            async def _call(
+                a: ChatProvider = adapter, c: ProviderConfig = config
+            ) -> CompletionResult:
+                return await a.complete(
+                    messages, model=c.model, temperature=temperature, max_tokens=max_tokens
+                )
+
             try:
-                result: CompletionResult = await call_with_retry(
-                    lambda a=adapter, c=config: a.complete(  # type: ignore[misc]
-                        messages, model=c.model, temperature=temperature, max_tokens=max_tokens
-                    ),
+                result = await call_with_retry(
+                    _call,
                     max_retries=self._settings.max_retries,
                     base_delay_seconds=self._settings.retry_base_delay_seconds,
                 )
@@ -147,9 +153,15 @@ class ModelGateway:
             adapter = _build_embed_adapter(
                 config, timeout=self._settings.timeout_seconds, client=self._client
             )
+
+            async def _call(
+                a: EmbeddingProvider = adapter, c: ProviderConfig = config
+            ) -> EmbeddingResult:
+                return await a.embed(texts, model=c.model)
+
             try:
-                embed_result: EmbeddingResult = await call_with_retry(
-                    lambda a=adapter, c=config: a.embed(texts, model=c.model),  # type: ignore[misc]
+                embed_result = await call_with_retry(
+                    _call,
                     max_retries=self._settings.max_retries,
                     base_delay_seconds=self._settings.retry_base_delay_seconds,
                 )

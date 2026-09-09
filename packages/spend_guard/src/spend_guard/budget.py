@@ -15,8 +15,8 @@ class BudgetStatus:
     @property
     def within_budget(self) -> bool:
         return (
-            self.spent_today_usd < self.daily_cap_usd
-            and self.spent_this_month_usd < self.monthly_cap_usd
+            self.spent_today_usd <= self.daily_cap_usd
+            and self.spent_this_month_usd <= self.monthly_cap_usd
         )
 
 

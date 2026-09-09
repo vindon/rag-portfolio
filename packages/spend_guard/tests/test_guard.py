@@ -101,10 +101,10 @@ async def test_precheck_blocks_when_velocity_threshold_exceeded_then_stays_block
         assert first_decision == SpendDecision.BLOCK_VELOCITY_SPIKE
 
         # A second precheck call finds the global breaker already tripped by
-        # the first call — this is the BLOCK_CIRCUIT_BREAKER path, distinct
+        # the first call — this is the BLOCK_GLOBAL_BREAKER path, distinct
         # from freshly detecting a velocity spike.
         second_decision = await g.precheck(0.01)
-        assert second_decision == SpendDecision.BLOCK_CIRCUIT_BREAKER
+        assert second_decision == SpendDecision.BLOCK_GLOBAL_BREAKER
     finally:
         await g.aclose()
 

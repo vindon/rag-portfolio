@@ -14,14 +14,14 @@ logger = logging.getLogger(__name__)
 class SpendDecision(StrEnum):
     ALLOW = "allow"
     DOWNGRADE_TO_LOCAL = "downgrade_to_local"
-    BLOCK_CIRCUIT_BREAKER = "block_circuit_breaker"
+    BLOCK_GLOBAL_BREAKER = "block_global_breaker"
     BLOCK_VELOCITY_SPIKE = "block_velocity_spike"
     BLOCK_BUDGET_EXCEEDED = "block_budget_exceeded"
 
     @property
     def is_blocked(self) -> bool:
         return self in {
-            SpendDecision.BLOCK_CIRCUIT_BREAKER,
+            SpendDecision.BLOCK_GLOBAL_BREAKER,
             SpendDecision.BLOCK_VELOCITY_SPIKE,
             SpendDecision.BLOCK_BUDGET_EXCEEDED,
         }
@@ -62,7 +62,7 @@ class SpendGuard:
                 conn, cooldown_seconds=self._circuit_breaker_cooldown_seconds
             ):
                 logger.warning("spend_guard.precheck.blocked reason=circuit_breaker_tripped")
-                return SpendDecision.BLOCK_CIRCUIT_BREAKER
+                return SpendDecision.BLOCK_GLOBAL_BREAKER
 
             velocity = await circuit_breaker.get_spend_velocity(conn)
             if velocity >= self._velocity_threshold_usd_per_minute:

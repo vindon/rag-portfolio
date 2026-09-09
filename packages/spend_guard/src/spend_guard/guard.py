@@ -137,7 +137,12 @@ async def create_spend_guard(
     resolved_dsn = dsn if dsn is not None else source.get("DATABASE_URL", "")
     if not resolved_dsn:
         raise ValueError("DATABASE_URL is not configured")
-    pool = await asyncpg.create_pool(resolved_dsn)
+    pool = await asyncpg.create_pool(
+        resolved_dsn,
+        min_size=int(source.get("SPEND_GUARD_POOL_MIN_SIZE", "1")),
+        max_size=int(source.get("SPEND_GUARD_POOL_MAX_SIZE", "10")),
+        command_timeout=float(source.get("SPEND_GUARD_COMMAND_TIMEOUT_SECONDS", "5.0")),
+    )
     return SpendGuard(
         pool,
         daily_cap_usd=float(source.get("SPEND_GUARD_DAILY_CAP_USD", "1.0")),

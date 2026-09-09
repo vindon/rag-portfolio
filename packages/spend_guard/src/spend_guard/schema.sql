@@ -2,7 +2,7 @@ CREATE TABLE IF NOT EXISTS budget_ledger (
     id BIGSERIAL PRIMARY KEY,
     domain TEXT NOT NULL,
     provider TEXT NOT NULL,
-    cost_usd NUMERIC(12, 6) NOT NULL,
+    cost_usd NUMERIC(12, 6) NOT NULL CHECK (cost_usd >= 0),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

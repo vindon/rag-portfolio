@@ -130,7 +130,7 @@ async def test_create_spend_guard_uses_production_defaults_and_does_not_trip_on_
 
         await g.record_success(5.00, domain="hr_policy", provider="groq")
         decision = await g.precheck(0.01)
-        assert decision.is_blocked is True
+        assert decision == SpendDecision.BLOCK_VELOCITY_SPIKE
     finally:
         await g.aclose()
 

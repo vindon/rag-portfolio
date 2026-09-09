@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
 
 import asyncpg
 
@@ -62,13 +61,17 @@ async def record_provider_success(conn: asyncpg.pool.PoolConnectionProxy, *, pro
 async def is_provider_tripped(
     conn: asyncpg.pool.PoolConnectionProxy, *, provider: str, cooldown_seconds: int
 ) -> bool:
-    row = await conn.fetchrow(
-        "SELECT tripped_at FROM circuit_breaker_state WHERE provider = $1", provider
+    return bool(
+        await conn.fetchval(
+            """
+            SELECT tripped_at IS NOT NULL AND tripped_at > now() - make_interval(secs => $2)
+            FROM circuit_breaker_state WHERE provider = $1
+            """,
+            provider,
+            float(cooldown_seconds),
+        )
+        or False
     )
-    if row is None or row["tripped_at"] is None:
-        return False
-    tripped_at: datetime = row["tripped_at"]
-    return datetime.now(UTC) - tripped_at < timedelta(seconds=cooldown_seconds)
 
 
 async def get_spend_velocity(conn: asyncpg.pool.PoolConnectionProxy) -> float:
@@ -90,8 +93,13 @@ async def trip_global_breaker(conn: asyncpg.pool.PoolConnectionProxy) -> None:
 async def is_global_breaker_tripped(
     conn: asyncpg.pool.PoolConnectionProxy, *, cooldown_seconds: int
 ) -> bool:
-    row = await conn.fetchrow("SELECT tripped_at FROM global_breaker_state WHERE id = 1")
-    if row is None or row["tripped_at"] is None:
-        return False
-    tripped_at: datetime = row["tripped_at"]
-    return datetime.now(UTC) - tripped_at < timedelta(seconds=cooldown_seconds)
+    return bool(
+        await conn.fetchval(
+            """
+            SELECT tripped_at IS NOT NULL AND tripped_at > now() - make_interval(secs => $1)
+            FROM global_breaker_state WHERE id = 1
+            """,
+            float(cooldown_seconds),
+        )
+        or False
+    )

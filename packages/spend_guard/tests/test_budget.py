@@ -60,3 +60,43 @@ async def test_within_budget_is_false_once_daily_cap_exceeded(
     status = await get_budget_status(db_conn, daily_cap_usd=1.0, monthly_cap_usd=20.0)
 
     assert status.within_budget is False
+
+
+@pytest.mark.anyio
+async def test_monthly_cap_exceeded_when_daily_spend_is_low(
+    db_conn: asyncpg.pool.PoolConnectionProxy,
+) -> None:
+    # Insert a spend earlier this month (but not today) so month-to-date is
+    # high while today's spend is low -- this must be caught independently
+    # of the daily-cap path, which every other test in this file exercises.
+    # record_spend always writes created_at = now(), so back-date directly
+    # via SQL instead, the same technique the circuit-breaker re-trip
+    # regression test uses. Anchored to the start of the current UTC month
+    # (matching get_budget_status's UTC-pinned boundary) rather than a fixed
+    # "N days ago" offset, so the test is correct no matter what day of the
+    # month it runs on.
+    await db_conn.execute(
+        "INSERT INTO budget_ledger (domain, provider, cost_usd, created_at) "
+        "VALUES ($1, $2, $3, "
+        "date_trunc('month', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' + interval '1 hour')",
+        "test_domain",
+        "test_provider",
+        15.0,
+    )
+    status = await get_budget_status(db_conn, daily_cap_usd=1.0, monthly_cap_usd=20.0)
+    assert status.spent_today_usd == pytest.approx(0.0)
+    assert status.spent_this_month_usd == pytest.approx(15.0)
+    assert status.within_budget is True  # 15 <= 20 monthly cap, 0 <= 1 daily cap
+
+    # Now push monthly total over the cap.
+    await db_conn.execute(
+        "INSERT INTO budget_ledger (domain, provider, cost_usd, created_at) "
+        "VALUES ($1, $2, $3, "
+        "date_trunc('month', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' + interval '2 hours')",
+        "test_domain",
+        "test_provider",
+        10.0,
+    )
+    status = await get_budget_status(db_conn, daily_cap_usd=1.0, monthly_cap_usd=20.0)
+    assert status.spent_this_month_usd == pytest.approx(25.0)
+    assert status.within_budget is False  # 25 > 20 monthly cap, despite $0 spent today

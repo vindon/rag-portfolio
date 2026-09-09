@@ -66,6 +66,15 @@ async def test_within_budget_is_false_once_daily_cap_exceeded(
 async def test_monthly_cap_exceeded_when_daily_spend_is_low(
     db_conn: asyncpg.pool.PoolConnectionProxy,
 ) -> None:
+    # On day 1 of the UTC month, "this month" and "today" are the same
+    # window, so a fixture spend that's in-month but not-today is not
+    # constructible -- skip honestly rather than assert something false.
+    is_first_of_utc_month = await db_conn.fetchval(
+        "SELECT extract(day from now() AT TIME ZONE 'UTC') = 1"
+    )
+    if is_first_of_utc_month:
+        pytest.skip("month-start and day-start coincide on day 1 of the UTC month")
+
     # Insert a spend earlier this month (but not today) so month-to-date is
     # high while today's spend is low -- this must be caught independently
     # of the daily-cap path, which every other test in this file exercises.

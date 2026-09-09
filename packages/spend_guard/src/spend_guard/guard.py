@@ -28,6 +28,15 @@ class SpendDecision(StrEnum):
 
 
 class SpendGuard:
+    """Enforces spend caps and circuit breakers backed by Postgres.
+
+    Every method here propagates asyncpg exceptions unchanged on database
+    failure (connection refused, timeout, etc.) -- this package makes no
+    fail-open/fail-closed decision on the caller's behalf. A caller wiring
+    this into a request path must decide, and implement, its own policy for
+    what happens when the database is unreachable.
+    """
+
     def __init__(
         self,
         pool: asyncpg.Pool,

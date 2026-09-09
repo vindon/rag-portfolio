@@ -25,11 +25,11 @@ async def get_budget_status(
 ) -> BudgetStatus:
     spent_today = await conn.fetchval(
         "SELECT COALESCE(SUM(cost_usd), 0) FROM budget_ledger "
-        "WHERE created_at >= date_trunc('day', now())"
+        "WHERE created_at >= date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'"
     )
     spent_month = await conn.fetchval(
         "SELECT COALESCE(SUM(cost_usd), 0) FROM budget_ledger "
-        "WHERE created_at >= date_trunc('month', now())"
+        "WHERE created_at >= date_trunc('month', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'"
     )
     return BudgetStatus(
         spent_today_usd=float(spent_today),

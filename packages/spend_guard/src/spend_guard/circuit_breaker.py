@@ -14,36 +14,40 @@ class BreakerStatus:
 async def record_provider_failure(
     conn: asyncpg.pool.PoolConnectionProxy, *, provider: str, threshold: int
 ) -> BreakerStatus:
+    # Unconditionally refresh tripped_at on every trip-condition hit — not
+    # just the first time. A prior version of this only set tripped_at
+    # WHERE tripped_at IS NULL, so once a provider's cooldown expired and
+    # its trip flag was "stale" (still set from the earlier trip, just
+    # outside the cooldown window), a fresh 5th-consecutive-failure would
+    # correctly compute tripped=True here but the UPDATE would silently
+    # no-op (tripped_at was already non-NULL), leaving the stale timestamp
+    # in place — which is now further in the past, not closer, so
+    # is_provider_tripped() would report the provider healthy forever
+    # after the first cooldown, no matter how many more failures piled up.
+    # The CASE below has no `AND tripped_at IS NULL` guard for exactly this
+    # reason: it must refresh tripped_at every time the trip condition is
+    # met, not only the first time.
     row = await conn.fetchrow(
         """
         INSERT INTO circuit_breaker_state (provider, consecutive_failures, updated_at)
         VALUES ($1, 1, now())
         ON CONFLICT (provider) DO UPDATE
         SET consecutive_failures = circuit_breaker_state.consecutive_failures + 1,
+            tripped_at = CASE
+                WHEN circuit_breaker_state.consecutive_failures + 1 >= $2 THEN now()
+                ELSE circuit_breaker_state.tripped_at
+            END,
             updated_at = now()
-        RETURNING consecutive_failures
+        RETURNING consecutive_failures, tripped_at IS NOT NULL AS tripped
         """,
         provider,
+        threshold,
     )
-    assert row is not None
-    failures = int(row["consecutive_failures"])
-    tripped = failures >= threshold
-    if tripped:
-        # Unconditionally refresh tripped_at on every trip-condition hit — not
-        # just the first time. A prior version of this only set tripped_at
-        # WHERE tripped_at IS NULL, so once a provider's cooldown expired and
-        # its trip flag was "stale" (still set from the earlier trip, just
-        # outside the cooldown window), a fresh 5th-consecutive-failure would
-        # correctly compute tripped=True here but the UPDATE would silently
-        # no-op (tripped_at was already non-NULL), leaving the stale timestamp
-        # in place — which is now further in the past, not closer, so
-        # is_provider_tripped() would report the provider healthy forever
-        # after the first cooldown, no matter how many more failures piled up.
-        await conn.execute(
-            "UPDATE circuit_breaker_state SET tripped_at = now() WHERE provider = $1",
-            provider,
-        )
-    return BreakerStatus(tripped=tripped, consecutive_failures=failures)
+    if row is None:
+        raise RuntimeError(f"record_provider_failure: upsert returned no row for {provider!r}")
+    return BreakerStatus(
+        tripped=bool(row["tripped"]), consecutive_failures=int(row["consecutive_failures"])
+    )
 
 
 async def record_provider_success(conn: asyncpg.pool.PoolConnectionProxy, *, provider: str) -> None:

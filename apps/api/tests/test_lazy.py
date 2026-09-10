@@ -79,23 +79,25 @@ async def test_resolve_lazy_recovers_after_a_prior_failed_attempt() -> None:
 
 def test_get_model_gateway_reads_app_state() -> None:
     app = FastAPI()
-    app.state.gateway = "fake-gateway-object"
+    sentinel = object()
+    app.state.gateway = sentinel
 
     async def _check() -> None:
         request = StarletteRequest({"type": "http", "app": app})
         result = await get_model_gateway(request)
-        assert result == "fake-gateway-object"  # type: ignore[comparison-overlap]
+        assert result is sentinel
 
     asyncio.run(_check())
 
 
 def test_get_spend_guard_resolves_via_lazy_resource() -> None:
     app = FastAPI()
-    app.state.spend_guard = LazyResource(value="fake-spend-guard-object")
+    sentinel = object()
+    app.state.spend_guard = LazyResource(value=sentinel)
 
     async def _check() -> None:
         request = StarletteRequest({"type": "http", "app": app})
         result = await get_spend_guard(request)
-        assert result == "fake-spend-guard-object"  # type: ignore[comparison-overlap]
+        assert result is sentinel
 
     asyncio.run(_check())

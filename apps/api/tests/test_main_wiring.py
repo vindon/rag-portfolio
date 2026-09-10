@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 from model_gateway.gateway import ModelGateway
 from model_gateway.settings import GatewaySettings
@@ -58,3 +59,49 @@ def test_health_still_ok_without_lifespan() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_health_survives_spend_guard_init_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _broken_create_spend_guard(*args: object, **kwargs: object) -> object:
+        raise ConnectionError("simulated Postgres outage")
+
+    async def _fake_build_hr_policy_index(*args: object, **kwargs: object) -> object:
+        return object()  # never touched by /health; avoids any real network/embedding call
+
+    monkeypatch.setattr("gateway.main.create_spend_guard", _broken_create_spend_guard)
+    monkeypatch.setattr("gateway.main.build_hr_policy_index", _fake_build_hr_policy_index)
+
+    app = create_app()
+    with TestClient(app) as client:
+        response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+    assert app.state.spend_guard.value is None
+    assert app.state.spend_guard.build_error is not None
+    assert app.state.hr_policy_index.value is not None  # the other resource is unaffected
+
+
+def test_health_survives_hr_policy_index_build_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _FakeSpendGuard:
+        async def aclose(self) -> None:
+            pass
+
+    async def _fake_create_spend_guard(*args: object, **kwargs: object) -> object:
+        return _FakeSpendGuard()
+
+    async def _broken_build_hr_policy_index(*args: object, **kwargs: object) -> object:
+        raise ValueError("simulated index build failure")
+
+    monkeypatch.setattr("gateway.main.create_spend_guard", _fake_create_spend_guard)
+    monkeypatch.setattr("gateway.main.build_hr_policy_index", _broken_build_hr_policy_index)
+
+    app = create_app()
+    with TestClient(app) as client:
+        response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+    assert app.state.hr_policy_index.value is None
+    assert app.state.hr_policy_index.build_error is not None
+    assert app.state.spend_guard.value is not None  # the other resource is unaffected

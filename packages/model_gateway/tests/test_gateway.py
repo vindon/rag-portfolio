@@ -429,3 +429,90 @@ async def test_embed_returns_cost_estimate_from_real_pricing_row() -> None:
 
     assert outcome.attempted_providers == ["openai"]
     assert outcome.estimated_cost_usd == pytest.approx(0.02)
+
+
+def test_estimate_precheck_cost_uses_primary_provider_and_char_heuristic() -> None:
+    providers = {
+        "primary": ProviderConfig(
+            "groq", "https://api.groq.com/openai/v1", "k", "llama-3.3-70b-versatile"
+        ),
+    }
+    gateway = ModelGateway(_settings_with(providers))
+    messages = [
+        ChatMessage(role=Role.SYSTEM, content="x" * 400),
+        ChatMessage(role=Role.USER, content="y" * 400),
+    ]
+
+    cost = gateway.estimate_precheck_cost(messages, max_tokens=100)
+
+    # input_tokens = 800 chars // 4 = 200 (chars/4 heuristic, no tokenizer dependency)
+    assert cost == pytest.approx((200 * 0.59 + 100 * 0.79) / 1_000_000)
+
+
+def test_estimate_precheck_cost_returns_zero_when_chain_is_empty() -> None:
+    settings = GatewaySettings(
+        llm_primary="nonexistent",
+        llm_secondary="",
+        llm_local="",
+        embed_primary="",
+        embed_secondary="",
+        timeout_seconds=5.0,
+        max_retries=0,
+        llm_providers={},
+        embed_providers={},
+    )
+    gateway = ModelGateway(settings)
+
+    cost = gateway.estimate_precheck_cost(
+        [ChatMessage(role=Role.USER, content="hi")], max_tokens=100
+    )
+
+    assert cost == 0.0
+
+
+@pytest.mark.anyio
+async def test_complete_raises_provider_error_with_attempted_providers() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, text="boom")
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    providers = {
+        "primary": ProviderConfig("primary", "https://primary.example/v1", "k", "m"),
+        "secondary": ProviderConfig("secondary", "https://secondary.example/v1", "k", "m"),
+    }
+    gateway = ModelGateway(_settings_with(providers, secondary="secondary"), client=client)
+
+    with pytest.raises(ProviderError) as exc_info:
+        await gateway.complete([ChatMessage(role=Role.USER, content="hi")])
+
+    assert exc_info.value.attempted_providers == ["primary", "secondary"]
+
+
+@pytest.mark.anyio
+async def test_embed_raises_provider_error_with_attempted_providers() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, text="boom")
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    providers = {
+        "primary": ProviderConfig("primary", "https://primary.example/v1", "k", "m"),
+        "secondary": ProviderConfig("secondary", "https://secondary.example/v1", "k", "m"),
+    }
+    settings = GatewaySettings(
+        llm_primary="",
+        llm_secondary="",
+        llm_local="",
+        embed_primary="primary",
+        embed_secondary="secondary",
+        timeout_seconds=5.0,
+        max_retries=0,
+        retry_base_delay_seconds=0.001,
+        llm_providers={},
+        embed_providers=providers,
+    )
+    gateway = ModelGateway(settings, client=client)
+
+    with pytest.raises(ProviderError) as exc_info:
+        await gateway.embed(["hi"])
+
+    assert exc_info.value.attempted_providers == ["primary", "secondary"]

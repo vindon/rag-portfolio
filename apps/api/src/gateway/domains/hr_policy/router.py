@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -15,6 +16,26 @@ from gateway.domains.hr_policy.retrieval import RetrievalIndex, build_hr_policy_
 from gateway.lazy import resolve_lazy
 
 logger = logging.getLogger(__name__)
+
+
+async def _safe_record(coro: Awaitable[object], *, what: str) -> None:
+    """Best-effort spend_guard write: log critically on failure, never raise.
+
+    spend_guard's own docstring is explicit that DB failures propagate
+    unchanged and the caller owns the policy
+    (packages/spend_guard/src/spend_guard/guard.py). For
+    record_success/record_failure specifically, the underlying spend has
+    already happened (or already failed) by the time we call this --
+    refusing to return the answer/error the caller already paid for or
+    received, just because the ledger write failed, would waste the spend a
+    second time. Logging critically (not silently) is what makes a stuck
+    ledger write observable in production instead of invisible.
+    """
+    try:
+        await coro
+    except Exception as exc:
+        logger.critical("hr_policy.spend_guard_record_failed what=%s error=%s", what, exc)
+
 
 router = APIRouter(prefix="/api/v1/hr_policy", tags=["hr_policy"])
 
@@ -71,13 +92,19 @@ async def ask(
     try:
         embed_outcome = await gateway.embed([body.question])
     except ProviderError as exc:
-        await spend_guard.record_failure(provider=_last_attempted_provider(exc))
+        await _safe_record(
+            spend_guard.record_failure(provider=_last_attempted_provider(exc)),
+            what="record_failure(embed)",
+        )
         raise HTTPException(status_code=503, detail="hr_policy is temporarily unavailable") from exc
 
-    await spend_guard.record_success(
-        embed_outcome.estimated_cost_usd,
-        domain="hr_policy",
-        provider=embed_outcome.result.provider,
+    await _safe_record(
+        spend_guard.record_success(
+            embed_outcome.estimated_cost_usd,
+            domain="hr_policy",
+            provider=embed_outcome.result.provider,
+        ),
+        what="record_success(embed)",
     )
 
     query_vector = embed_outcome.result.vectors[0]
@@ -85,7 +112,13 @@ async def ask(
     messages = build_prompt(body.question, retrieved)
 
     estimate = gateway.estimate_precheck_cost(messages, max_tokens=_MAX_TOKENS)
-    decision = await spend_guard.precheck(estimate, has_local_fallback=False)
+    try:
+        decision = await spend_guard.precheck(estimate, has_local_fallback=False)
+    except Exception as exc:
+        logger.critical("hr_policy.precheck_failed error=%s", exc)
+        raise HTTPException(
+            status_code=503, detail="Spend Guard is temporarily unavailable."
+        ) from exc
     if decision == SpendDecision.BLOCK_BUDGET_EXCEEDED:
         raise HTTPException(
             status_code=503,
@@ -105,14 +138,20 @@ async def ask(
     try:
         outcome = await gateway.complete(messages, max_tokens=_MAX_TOKENS)
     except ProviderError as exc:
-        await spend_guard.record_failure(provider=_last_attempted_provider(exc))
+        await _safe_record(
+            spend_guard.record_failure(provider=_last_attempted_provider(exc)),
+            what="record_failure(complete)",
+        )
         raise HTTPException(
             status_code=503,
             detail="hr_policy is temporarily unavailable (all providers failed).",
         ) from exc
 
-    await spend_guard.record_success(
-        outcome.estimated_cost_usd, domain="hr_policy", provider=outcome.result.provider
+    await _safe_record(
+        spend_guard.record_success(
+            outcome.estimated_cost_usd, domain="hr_policy", provider=outcome.result.provider
+        ),
+        what="record_success(complete)",
     )
 
     sources = [

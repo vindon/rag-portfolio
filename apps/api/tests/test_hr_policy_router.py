@@ -95,6 +95,33 @@ _INDEX = RetrievalIndex(
 )
 
 
+class _BrokenSpendGuard:
+    """A test-only spend_guard stand-in whose calls can be made to fail.
+
+    Used to prove the router's *reaction* to spend_guard raising (e.g. a
+    transient Postgres outage) -- not spend_guard's own correctness, which
+    is already covered by packages/spend_guard's own tests.
+    """
+
+    def __init__(self, *, fail_precheck: bool = False, fail_record_success: bool = False) -> None:
+        self._fail_precheck = fail_precheck
+        self._fail_record_success = fail_record_success
+
+    async def precheck(
+        self, estimated_cost_usd: float, *, has_local_fallback: bool = True
+    ) -> SpendDecision:
+        if self._fail_precheck:
+            raise ConnectionError("simulated Postgres outage")
+        return SpendDecision.ALLOW
+
+    async def record_success(self, cost_usd: float, *, domain: str, provider: str) -> None:
+        if self._fail_record_success:
+            raise ConnectionError("simulated Postgres outage")
+
+    async def record_failure(self, *, provider: str) -> bool:
+        return False
+
+
 @pytest.mark.anyio
 async def test_ask_returns_answer_with_sources_on_success(real_spend_guard: SpendGuard) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
@@ -217,3 +244,41 @@ async def test_precheck_never_returns_downgrade_to_local_for_hr_policy(
 
     assert decision != SpendDecision.DOWNGRADE_TO_LOCAL
     assert decision == SpendDecision.BLOCK_BUDGET_EXCEEDED
+
+
+@pytest.mark.anyio
+async def test_ask_returns_503_not_500_when_precheck_raises() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "embeddings" in str(request.url):
+            return _embed_response(1)
+        return _chat_response("answer")
+
+    gateway = _fake_gateway(handler)
+    broken_guard = _BrokenSpendGuard(fail_precheck=True)
+    app = _build_app(gateway=gateway, spend_guard=broken_guard, index=_INDEX)  # type: ignore[arg-type]
+
+    response = await _post(app, "/api/v1/hr_policy/ask", {"question": "How much leave?"})
+
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert detail
+    assert detail != "Internal Server Error"
+
+
+@pytest.mark.anyio
+async def test_ask_returns_answer_even_when_record_success_write_fails() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "embeddings" in str(request.url):
+            return _embed_response(1)
+        return _chat_response("You get 20 days per year. [1.1 Entitlement]")
+
+    gateway = _fake_gateway(handler)
+    broken_guard = _BrokenSpendGuard(fail_record_success=True)
+    app = _build_app(gateway=gateway, spend_guard=broken_guard, index=_INDEX)  # type: ignore[arg-type]
+
+    response = await _post(app, "/api/v1/hr_policy/ask", {"question": "How much leave?"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "20 days" in body["answer"]
+    assert body["provider_used"] == "groq"

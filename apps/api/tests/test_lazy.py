@@ -84,7 +84,7 @@ def test_get_model_gateway_reads_app_state() -> None:
     async def _check() -> None:
         request = StarletteRequest({"type": "http", "app": app})
         result = await get_model_gateway(request)
-        assert result == "fake-gateway-object"
+        assert result == "fake-gateway-object"  # type: ignore[comparison-overlap]
 
     asyncio.run(_check())
 
@@ -96,6 +96,6 @@ def test_get_spend_guard_resolves_via_lazy_resource() -> None:
     async def _check() -> None:
         request = StarletteRequest({"type": "http", "app": app})
         result = await get_spend_guard(request)
-        assert result == "fake-spend-guard-object"
+        assert result == "fake-spend-guard-object"  # type: ignore[comparison-overlap]
 
     asyncio.run(_check())

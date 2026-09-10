@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Protocol
 
 import httpx
 import pytest
@@ -12,6 +13,24 @@ from spend_guard.guard import SpendDecision, SpendGuard
 from gateway.dependencies import get_model_gateway, get_spend_guard
 from gateway.domains.hr_policy.retrieval import Chunk, RetrievalIndex
 from gateway.domains.hr_policy.router import get_hr_policy_index, router
+
+
+class SpendGuardLike(Protocol):
+    """Structural type for _build_app's spend_guard param.
+
+    Lets the real `SpendGuard` and the test-only `_BrokenSpendGuard` (below)
+    both satisfy the parameter type with no `# type: ignore` suppression --
+    this plan's Global Constraints require zero suppressions in every
+    package/app it touches, with no carve-out for tests/.
+    """
+
+    async def precheck(
+        self, estimated_cost_usd: float, *, has_local_fallback: bool = True
+    ) -> SpendDecision: ...
+
+    async def record_success(self, cost_usd: float, *, domain: str, provider: str) -> None: ...
+
+    async def record_failure(self, *, provider: str) -> bool: ...
 
 
 def _chat_response(text: str) -> httpx.Response:
@@ -30,7 +49,9 @@ def _embed_response(n: int) -> httpx.Response:
     )
 
 
-def _build_app(*, gateway: ModelGateway, spend_guard: SpendGuard, index: RetrievalIndex) -> FastAPI:
+def _build_app(
+    *, gateway: ModelGateway, spend_guard: SpendGuardLike, index: RetrievalIndex
+) -> FastAPI:
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_model_gateway] = lambda: gateway
@@ -255,7 +276,7 @@ async def test_ask_returns_503_not_500_when_precheck_raises() -> None:
 
     gateway = _fake_gateway(handler)
     broken_guard = _BrokenSpendGuard(fail_precheck=True)
-    app = _build_app(gateway=gateway, spend_guard=broken_guard, index=_INDEX)  # type: ignore[arg-type]
+    app = _build_app(gateway=gateway, spend_guard=broken_guard, index=_INDEX)
 
     response = await _post(app, "/api/v1/hr_policy/ask", {"question": "How much leave?"})
 
@@ -274,7 +295,7 @@ async def test_ask_returns_answer_even_when_record_success_write_fails() -> None
 
     gateway = _fake_gateway(handler)
     broken_guard = _BrokenSpendGuard(fail_record_success=True)
-    app = _build_app(gateway=gateway, spend_guard=broken_guard, index=_INDEX)  # type: ignore[arg-type]
+    app = _build_app(gateway=gateway, spend_guard=broken_guard, index=_INDEX)
 
     response = await _post(app, "/api/v1/hr_policy/ask", {"question": "How much leave?"})
 

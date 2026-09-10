@@ -2,10 +2,11 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-COPY pyproject.toml ./
-COPY src ./src
+COPY packages/model_gateway ./packages/model_gateway
+COPY packages/spend_guard ./packages/spend_guard
+COPY apps/api ./apps/api
 
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir ./packages/model_gateway ./packages/spend_guard ./apps/api
 
 RUN useradd --create-home --uid 1000 app
 USER app

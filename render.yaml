@@ -2,7 +2,18 @@ services:
   - type: web
     name: rag-portfolio-api
     runtime: docker
-    rootDir: apps/api
-    dockerfilePath: ./Dockerfile
+    dockerfilePath: apps/api/Dockerfile
+    dockerContext: .
     plan: free
     healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: LLM_PROVIDER_SECONDARY
+        value: gemini
+      - key: EMBED_PROVIDER
+        value: gemini

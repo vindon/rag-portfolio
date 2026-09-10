@@ -1,0 +1,16 @@
+.git/
+.claude/
+docs/
+apps/web/
+01-hr-policy-rag/
+02-contract-review-chat/
+03-marketing-content-hub/
+04-techDocs-rag-pipeline/
+05-it-helpdesk-agent/
+**/.venv/
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/tests/

@@ -11,7 +11,7 @@ from spend_guard.guard import SpendGuard, create_spend_guard
 from spend_guard.schema import apply_schema
 
 TEST_DATABASE_URL = os.environ.get(
-    "TEST_DATABASE_URL", "postgresql://vinoth@localhost:5432/gateway_test"
+    "TEST_DATABASE_URL", "postgresql://postgres@localhost:5432/gateway_test"
 )
 
 

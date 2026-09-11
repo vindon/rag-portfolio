@@ -42,8 +42,11 @@ class EmbeddingResult:
 
 
 class ProviderError(Exception):
-    def __init__(self, provider: str, message: str) -> None:
+    def __init__(
+        self, provider: str, message: str, *, attempted_providers: list[str] | None = None
+    ) -> None:
         self.provider = provider
+        self.attempted_providers = attempted_providers
         super().__init__(f"[{provider}] {message}")
 
 

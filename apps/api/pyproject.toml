@@ -5,15 +5,20 @@ requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
+    "model-gateway",
+    "spend-guard",
+    "numpy>=1.26,<2.5",  # >=2.5's stubs use PEP 695 syntax mypy can't parse at python_version=3.11
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest==9.1.1",
+    "anyio==4.15.1",
     "httpx==0.28.1",
     "ruff==0.16.6",
     "black==26.5.1",
     "mypy==2.3.1",
+    "asyncpg-stubs==0.31.3",
 ]
 
 [build-system]
@@ -22,6 +27,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/gateway"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/gateway/domains/hr_policy/data/hr_policy.md" = "gateway/domains/hr_policy/data/hr_policy.md"
 
 [tool.ruff]
 line-length = 100
@@ -36,10 +44,7 @@ target-version = ["py311"]
 
 [tool.mypy]
 python_version = "3.11"
-disallow_untyped_defs = true
-disallow_incomplete_defs = true
-warn_return_any = true
-warn_unused_ignores = true
+strict = true
 mypy_path = "src"
 
 [tool.pytest.ini_options]

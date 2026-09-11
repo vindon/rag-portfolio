@@ -183,7 +183,9 @@ class ModelGateway:
             )
 
         raise ProviderError(
-            "model_gateway", f"all providers in fallback chain failed: {attempted}"
+            "model_gateway",
+            f"all providers in fallback chain failed: {attempted}",
+            attempted_providers=attempted,
         ) from last_error
 
     async def embed(self, texts: list[str]) -> EmbedOutcome:
@@ -239,5 +241,29 @@ class ModelGateway:
             )
 
         raise ProviderError(
-            "model_gateway", f"all embedding providers failed: {attempted}"
+            "model_gateway",
+            f"all embedding providers failed: {attempted}",
+            attempted_providers=attempted,
         ) from last_error
+
+    def estimate_precheck_cost(self, messages: list[ChatMessage], *, max_tokens: int) -> float:
+        """Conservative pre-call cost estimate for Spend Guard's precheck.
+
+        Uses the primary provider in the fallback chain and a chars/4 input-token
+        heuristic (no tokenizer dependency), with max_tokens as the worst-case
+        output. Real cost after a call is always computed exactly from actual
+        usage by complete()/embed() -- this estimate exists only to let Spend
+        Guard reject or allow a call *before* any money is spent.
+        """
+        chain = self._settings.llm_fallback_chain()
+        if not chain:
+            return 0.0
+        provider_name = chain[0]
+        config = self._settings.llm_providers[provider_name]
+        input_tokens = sum(len(m.content) for m in messages) // 4
+        return estimate_cost(
+            provider=config.name,
+            model=config.model,
+            input_tokens=input_tokens,
+            output_tokens=max_tokens,
+        )

@@ -1,5 +1,7 @@
 .git/
 .claude/
+**/.env
+**/.env.*
 docs/
 apps/web/
 01-hr-policy-rag/

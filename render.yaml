@@ -17,3 +17,11 @@ services:
         value: gemini
       - key: EMBED_PROVIDER
         value: gemini
+      - key: LLM_PROVIDER_LOCAL
+        value: ""
+      - key: GROQ_MODEL
+        value: llama-3.3-70b-versatile
+      - key: GEMINI_MODEL
+        value: gemini-2.0-flash
+      - key: GEMINI_EMBED_MODEL
+        value: text-embedding-004

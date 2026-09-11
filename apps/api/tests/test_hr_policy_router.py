@@ -303,3 +303,20 @@ async def test_ask_returns_answer_even_when_record_success_write_fails() -> None
     body = response.json()
     assert "20 days" in body["answer"]
     assert body["provider_used"] == "groq"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("question", ["", "x" * 2001])
+async def test_ask_rejects_question_outside_length_bounds(question: str) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "embeddings" in str(request.url):
+            return _embed_response(1)
+        return _chat_response("answer")
+
+    gateway = _fake_gateway(handler)
+    broken_guard = _BrokenSpendGuard()
+    app = _build_app(gateway=gateway, spend_guard=broken_guard, index=_INDEX)
+
+    response = await _post(app, "/api/v1/hr_policy/ask", {"question": question})
+
+    assert response.status_code == 422

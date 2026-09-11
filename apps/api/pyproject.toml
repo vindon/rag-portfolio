@@ -7,7 +7,7 @@ dependencies = [
     "uvicorn[standard]>=0.32",
     "model-gateway",
     "spend-guard",
-    "numpy>=1.26,<2.5",
+    "numpy>=1.26,<2.5",  # >=2.5's stubs use PEP 695 syntax mypy can't parse at python_version=3.11
 ]
 
 [project.optional-dependencies]

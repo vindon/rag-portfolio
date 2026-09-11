@@ -54,6 +54,8 @@ _DATA_PATH = Path(__file__).parent / "data" / "hr_policy.md"
 
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    if len(a) != len(b):
+        return 0.0
     vec_a = np.array(a, dtype=float)
     vec_b = np.array(b, dtype=float)
     norm_a = float(np.linalg.norm(vec_a))

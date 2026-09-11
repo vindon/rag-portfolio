@@ -7,7 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request
 from model_gateway.gateway import ModelGateway
 from model_gateway.types import ProviderError
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from spend_guard.guard import SpendDecision, SpendGuard
 
 from gateway.dependencies import get_model_gateway, get_spend_guard
@@ -45,7 +45,7 @@ _EXCERPT_MAX_CHARS = 200
 
 
 class AskRequest(BaseModel):
-    question: str
+    question: str = Field(min_length=1, max_length=2000)
 
 
 class Source(BaseModel):
@@ -107,6 +107,8 @@ async def ask(
         what="record_success(embed)",
     )
 
+    if not embed_outcome.result.vectors:
+        raise HTTPException(status_code=503, detail="hr_policy is temporarily unavailable")
     query_vector = embed_outcome.result.vectors[0]
     retrieved = index.search(query_vector, _TOP_K)
     messages = build_prompt(body.question, retrieved)

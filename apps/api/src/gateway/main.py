@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from model_gateway.gateway import ModelGateway
 from spend_guard.guard import SpendGuard, create_spend_guard
 
@@ -14,6 +15,11 @@ from gateway.domains.registry import DOMAIN_NAMES, make_domain_router
 from gateway.lazy import LazyResource
 
 logger = logging.getLogger(__name__)
+
+_ALLOWED_ORIGINS = [
+    "https://rag-portfolio-web.vercel.app",
+    "http://localhost:3000",
+]
 
 
 @asynccontextmanager
@@ -46,6 +52,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     app = FastAPI(title="RAG Portfolio Gateway", version="0.1.0", lifespan=lifespan)
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_ALLOWED_ORIGINS,
+        allow_methods=["GET", "POST"],
+        allow_headers=["Content-Type"],
+    )
 
     @app.get("/health")
     def health() -> dict[str, str]:

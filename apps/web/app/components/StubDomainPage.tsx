@@ -10,7 +10,7 @@ export function StubDomainPage({ name, description, concepts }: StubDomainPagePr
   return (
     <div className="stub-page">
       <StatusBadge status="stub" />
-      <h2>{name}</h2>
+      <h1>{name}</h1>
       <p>{description}</p>
       <ul className="stub-concepts">
         {concepts.map((c) => (

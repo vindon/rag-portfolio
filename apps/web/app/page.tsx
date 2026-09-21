@@ -6,7 +6,7 @@ export default function HomePage() {
   return (
     <AppShell>
       <h1>RAG Portfolio Platform</h1>
-      <p>A governed, cost-controlled agentic AI platform.</p>
+      <p className="lede">A governed, cost-controlled agentic AI platform.</p>
       <div className="domain-grid">
         {DOMAINS.map((d) => (
           <DomainCard

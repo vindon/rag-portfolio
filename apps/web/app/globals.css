@@ -28,10 +28,20 @@ body {
   font-family: var(--font-ui, system-ui, -apple-system, sans-serif);
 }
 
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 main {
   max-width: 880px;
   margin: 0 auto;
   padding: 2rem 1.5rem 4rem;
+}
+
+.lede {
+  color: var(--muted);
+  max-width: 60ch;
 }
 
 /* App shell nav */
@@ -39,6 +49,8 @@ main {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
+  max-width: 880px;
+  margin: 0 auto;
   padding: 1.25rem 1.5rem;
   border-bottom: 1px solid var(--border);
 }
@@ -52,6 +64,11 @@ main {
   border: 1px solid var(--border);
   color: var(--muted);
   background: var(--surface);
+}
+
+.shell-nav a:hover {
+  border-color: var(--accent);
+  color: var(--text);
 }
 
 .shell-nav a[data-active="true"] {
@@ -101,6 +118,10 @@ main {
   color: var(--text);
 }
 
+.domain-card:hover {
+  border-color: var(--accent);
+}
+
 .domain-card h3 {
   margin: 0.5rem 0 0.3rem;
   font-size: 1rem;
@@ -128,6 +149,7 @@ main {
 
 .demo-card input {
   flex: 1;
+  min-width: 0;
   padding: 0.55rem 0.8rem;
   font-size: 1rem;
   font-family: var(--font-ui, sans-serif);

@@ -1,8 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { SourceCard } from "../components/SourceCard";
+import { DOMAINS } from "../domains";
 
 const API_BASE_URL = "https://rag-portfolio-api-w57v.onrender.com";
+const domain = DOMAINS.find((d) => d.slug === "hr-policy")!;
 
 interface Source {
   header: string;
@@ -31,7 +34,7 @@ export function HrPolicyDemo() {
     setResult(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/hr_policy/ask`, {
+      const response = await fetch(`${API_BASE_URL}/api/v1/${domain.apiName}/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question }),
@@ -52,8 +55,7 @@ export function HrPolicyDemo() {
   }
 
   return (
-    <section className="demo">
-      <h2>HR Policy Q&amp;A — live demo</h2>
+    <div className="demo-card">
       <form onSubmit={handleSubmit}>
         <input
           type="text"
@@ -67,26 +69,26 @@ export function HrPolicyDemo() {
         </button>
       </form>
 
-      {status === "error" && <p className="error">{errorMessage}</p>}
+      {status === "error" && <p className="demo-error">{errorMessage}</p>}
 
       {result && (
-        <div className="result">
+        <div>
           <p className="answer">{result.answer}</p>
-          <p className="provider">via {result.provider_used}</p>
-          <details>
-            <summary>{result.sources.length} source(s)</summary>
-            <ul>
-              {result.sources.map((source, i) => (
-                <li key={i}>
-                  <strong>{source.header}</strong> ({source.relevance.toFixed(2)})
-                  <br />
-                  {source.excerpt}
-                </li>
-              ))}
-            </ul>
-          </details>
+          <p className="provider-tag">answered via {result.provider_used}</p>
+          <div className="sources">
+            <div className="sources-label">{result.sources.length} source(s)</div>
+            {result.sources.map((source, i) => (
+              <SourceCard
+                key={i}
+                index={i + 1}
+                header={source.header}
+                excerpt={source.excerpt}
+                relevance={source.relevance}
+              />
+            ))}
+          </div>
         </div>
       )}
-    </section>
+    </div>
   );
 }

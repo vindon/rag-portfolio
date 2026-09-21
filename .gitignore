@@ -72,3 +72,6 @@ htmlcov/
 
 # OS
 Thumbs.db
+
+# Git worktrees (isolated workspaces for subagent-driven development)
+.worktrees/

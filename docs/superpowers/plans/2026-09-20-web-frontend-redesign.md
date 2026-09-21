@@ -841,7 +841,7 @@ git commit -m "feat(web): rebuild landing page as domain catalog"
 - Delete: `apps/web/app/hr-policy-demo.tsx`
 
 **Interfaces:**
-- Consumes: `AppShell` (Task 6), `SourceCard` (Task 5)
+- Consumes: `AppShell` (Task 6), `SourceCard` (Task 5), `DOMAINS` (Task 1, for `apiName` — the fetch URL derives the API domain name from data rather than a hardcoded string, since spec §4.1 explicitly calls out never conflating route slugs and API domain names)
 - Produces: `HrPolicyDemo` component (same fetch behavior as before, restyled render)
 
 - [ ] **Step 1: Delete the old file**
@@ -857,8 +857,10 @@ git rm apps/web/app/hr-policy-demo.tsx
 
 import { useState } from "react";
 import { SourceCard } from "../components/SourceCard";
+import { DOMAINS } from "../domains";
 
 const API_BASE_URL = "https://rag-portfolio-api-w57v.onrender.com";
+const domain = DOMAINS.find((d) => d.slug === "hr-policy")!;
 
 interface Source {
   header: string;
@@ -887,7 +889,7 @@ export function HrPolicyDemo() {
     setResult(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/hr_policy/ask`, {
+      const response = await fetch(`${API_BASE_URL}/api/v1/${domain.apiName}/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question }),

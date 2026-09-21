@@ -6,6 +6,7 @@
   --text: #0A0A0A;
   --muted: #6B6B6B;
   --accent: #FF5A1F;
+  --accent-text: #C2450F;
   --accent-soft: #FFE4D6;
   --accent-ink: #FFFFFF;
   --warn: #B8860B;
@@ -73,8 +74,8 @@ main {
 
 .shell-nav a[data-active="true"] {
   color: var(--accent-ink);
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--accent-text);
+  border-color: var(--accent-text);
 }
 
 /* Status badge */
@@ -91,7 +92,7 @@ main {
 
 .status-badge--live {
   color: var(--accent-ink);
-  background: var(--accent);
+  background: var(--accent-text);
 }
 
 .status-badge--stub {
@@ -165,7 +166,7 @@ main {
   font-weight: 600;
   border: none;
   border-radius: 8px;
-  background: var(--accent);
+  background: var(--accent-text);
   color: var(--accent-ink);
   cursor: pointer;
 }

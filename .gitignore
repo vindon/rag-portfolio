@@ -72,3 +72,7 @@ htmlcov/
 
 # OS
 Thumbs.db
+
+# Local Claude Code / worktree state
+.claude/
+.worktrees/
